@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Audio Downloader",
+  "version": "1.0",
+  "description": "Download audio-only streams from YouTube videos.",
+  "permissions": [
+    "downloads",
+    "scripting",
+    "storage",
+    "offscreen",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "https://*.youtube.com/*",
+    "https://*.googlevideo.com/*",
+    "https://*.supabase.co/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["bridge.js"],
+      "matches": ["https://www.youtube.com/*"]
+    }
+  ]
+}
