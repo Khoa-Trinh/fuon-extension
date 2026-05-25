@@ -3,6 +3,7 @@ let offscreenChunks = [];
 let trackedBytes = 0;
 const chunkSignatures = new Set();
 let directSubmitLock = false;
+let supabaseClient = null;
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // 🛡️ FILTER GATES: Ignore direct cross-talk broadcasts from content.js
@@ -85,7 +86,9 @@ async function handleDirectCloudUpload(request) {
   const blob = new Blob(offscreenChunks, { type: request.mimeType });
   const { supabaseUrl, secretKey, bucketName } = request.config;
 
-  const supabaseClient = supabase.createClient(supabaseUrl, secretKey);
+  if (!supabaseClient) {
+    supabaseClient = supabase.createClient(supabaseUrl, secretKey);
+  }
 
   const cleanString = (str) =>
     str
