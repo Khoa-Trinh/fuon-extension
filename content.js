@@ -327,14 +327,17 @@ if (window.__ytAudioContentInitialized) {
         ) {
           const firstBtn = contentArea.querySelector("button");
           if (firstBtn && !firstBtn.disabled) {
-            chrome.runtime.sendMessage(
-              { type: "PREPARE_AND_RESET_OFFSCREEN" },
-              (res) => {
-                if (res && res.success) {
-                  triggerTrackHarvest(firstBtn);
-                }
-              },
-            );
+            // Give the bridge 500ms to stabilize cache after UI load
+            setTimeout(() => {
+              chrome.runtime.sendMessage(
+                { type: "PREPARE_AND_RESET_OFFSCREEN" },
+                (res) => {
+                  if (res && res.success) {
+                    triggerTrackHarvest(firstBtn);
+                  }
+                },
+              );
+            }, 500);
           }
         }
       }

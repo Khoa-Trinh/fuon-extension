@@ -28,22 +28,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (len === 0) return false;
 
-    // 👑 HEADER PRIORITIZATION: If it's a HEADER, it MUST be index 0
-    if (meta.streamType === "HEADER") {
-      offscreenChunks.unshift(new Uint8Array(rawData));
-      console.log("[YT-Audio-Offscreen] 👑 Header forced to index 0.");
-      return false;
+    // 1. Absolute Structural Header Check (The ftyp box)
+    const isStructuralHeader =
+      len > 8 &&
+      rawData[4] === 0x66 &&
+      rawData[5] === 0x74 &&
+      rawData[6] === 0x79 &&
+      rawData[7] === 0x70;
+
+    if (isStructuralHeader) {
+      console.log(
+        `[YT-Audio-Offscreen] 🧼 Structural Header Caught (${len} B). Forcing hard memory reset.`,
+      );
+      offscreenChunks = [];
+      trackedBytes = 0;
+      chunkSignatures.clear();
+      directSubmitLock = false;
     }
 
     // Filter structural redundant header duplicates safely
     if (offscreenChunks.length > 0 && len < 300) return false;
 
-    // 🧠 DUPLICATE DETECTION CHECKSUM
+    // 2. Add signature fingerprint to prevent duplicate processing
     const sig = `${len}_${rawData[0]}_${rawData[len - 1]}`;
-
     if (chunkSignatures.has(sig)) {
       console.log(
-        `%c[YT-Audio-Offscreen] 🛑 Duplicate block dropped -> Origin: ${meta.streamType || "LIVE"} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s`,
+        `%c[YT-Audio-Offscreen] 🛑 Duplicate block dropped | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s`,
         "color: #ef4444; font-weight: bold;",
       );
       return false;
@@ -54,7 +64,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     trackedBytes += len;
 
     console.log(
-      `%c[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} Stored Safely | Origin: ${meta.streamType || "LIVE"} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s | Pool Weight: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
+      `%c[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} Stored | Origin: ${meta.streamType || "LIVE"} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s | Pool Weight: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
       meta.streamType === "PRELOADED_CACHE"
         ? "color: #71717a;"
         : "color: #38bdf8;",

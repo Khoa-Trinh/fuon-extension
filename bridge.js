@@ -218,7 +218,7 @@
         runSeekProbe(e.data.duration, e.data.title, e.data.artist);
       if (e.data.type === "RESET_BRIDGE_STREAM") {
         isHarvesting = false;
-        passivePreloadCache = [];
+        // The cache belongs to the video context, not the UI state.
         window.__currentTrackInitHeader = null;
         broadcastFormat();
       }
