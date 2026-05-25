@@ -124,7 +124,7 @@ async function handleDirectCloudUpload(request) {
     .insert([
       {
         title: request.title,
-        artist: request.artist || "Unknown Publisher",
+        artist: request.artist || "Unknown Artist",
         playlist: request.playlistTitle || "None",
         duration_seconds: Math.round(request.duration || 0),
         file_name: fileName,
