@@ -103,11 +103,11 @@ if (window.__ytAudioContentInitialized) {
     );
   }
 
-  // 🔄 INTERNAL RUNTIME NOTIFICATION LISTENER LAYER
+  // 🔄 RE-ENGINEERED INBOUND MESSAGE LISTENER
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "UPLOAD_PIPELINE_COMPLETE") {
       console.log(
-        "[AUTOMATOR-TRACE] Intercepted async UPLOAD_PIPELINE_COMPLETE event message notification framework:",
+        "[AUTOMATOR-TRACE] Success! Tab received completion message from router:",
         message,
       );
 
@@ -120,7 +120,7 @@ if (window.__ytAudioContentInitialized) {
             const hasNextTrack = executeFullPageNavigation();
             if (!hasNextTrack) {
               console.warn(
-                "[AUTOMATOR-TRACE] ❌ No next sibling track item was found in the panel layout grid. Disengaging automator.",
+                "[AUTOMATOR-TRACE] 🏁 End of playlist or track nodes missing. Halting automation loop.",
               );
               chrome.storage.local.set(
                 { playlist_automator_active: false },
@@ -131,16 +131,13 @@ if (window.__ytAudioContentInitialized) {
             }
           } else {
             console.log(
-              "[YT-Audio] Queue automated walkthrough halted gracefully.",
+              "[YT-Audio] Walkthrough complete. Automation flag is set to false.",
             );
             renderInner();
           }
         });
       } else {
-        console.warn(
-          "[AUTOMATOR-TRACE] ❌ Async transaction reported failure metrics status:",
-          message.error,
-        );
+        console.error("[AUTOMATOR-TRACE] Upload failed:", message.error);
         chrome.storage.local.set({ playlist_automator_active: false }, () => {
           renderInner();
         });
@@ -208,7 +205,6 @@ if (window.__ytAudioContentInitialized) {
         const isStaticPlaylistPage =
           window.location.pathname.includes("/playlist");
 
-        // 🛑 Safe Kill Switch: Turns flag to false without breaking current processes
         if (isAutoActive && !isStaticPlaylistPage) {
           const killSwitchBtn = document.createElement("button");
           killSwitchBtn.innerHTML = `<span>🛑 Stop Automation (Finishes Current Track)</span>`;
@@ -219,6 +215,9 @@ if (window.__ytAudioContentInitialized) {
             console.warn(
               "[AUTOMATOR-TRACE] 🛑 Manual UI kill switch button clicked.",
             );
+            // Force reset state flags immediately so UI unfreezes on click
+            isUploading = false;
+            isHarvestingActive = false;
             chrome.storage.local.set(
               { playlist_automator_active: false },
               () => {
@@ -255,9 +254,6 @@ if (window.__ytAudioContentInitialized) {
             );
 
             if (targetTrack && targetTrack.href) {
-              console.log(
-                "[AUTOMATOR-TRACE] Starting playlist walkthrough loop from listing view.",
-              );
               chrome.storage.local.set(
                 { playlist_automator_active: true },
                 () => {
@@ -413,44 +409,62 @@ if (window.__ytAudioContentInitialized) {
       mimeType: activeInfo.mimeType,
       config: cfg,
     });
-    // Response handler safely relocated to global event listener system above
   }
 
+  // 🛡️ HARDENED SIDEBAR LOOP MATRIX INDEX FINDER
   function executeFullPageNavigation() {
     console.log(
-      "[YT-Audio] Scanning sidebar panels grid layout node pointers...",
+      "[YT-Audio] Scanning sidebar playlist renderers grid layout arrays...",
     );
-    const currentActiveItem = document.querySelector(
-      "ytd-playlist-panel-video-renderer[selected], ytd-playlist-panel-video-renderer[active]",
+
+    const allItems = Array.from(
+      document.querySelectorAll("ytd-playlist-panel-video-renderer"),
     );
-    if (!currentActiveItem) {
+
+    // 🧠 Bulletproof Video-ID Matching Strategy (Immune to YouTube DOM attribute mutations)
+    const urlParams = new URLSearchParams(window.location.search);
+    const currentVidId = urlParams.get("v");
+
+    if (!currentVidId) {
+      console.error(
+        "[AUTOMATOR-TRACE] ❌ Unable to extract active video parameter ID from page URL context window.",
+      );
+      return false;
+    }
+
+    const activeIndex = allItems.findIndex((el) => {
+      const anchor = el.querySelector("a[href*='v=']");
+      if (!anchor) return false;
+      const itemUrlParams = new URLSearchParams(
+        new URL(anchor.href, window.location.origin).search,
+      );
+      return itemUrlParams.get("v") === currentVidId;
+    });
+
+    if (activeIndex === -1 || activeIndex >= allItems.length - 1) {
       console.warn(
-        "[AUTOMATOR-TRACE] ❌ Active tracking node tracker element reference could not be localized.",
+        "[AUTOMATOR-TRACE] 🏁 Terminal list item reached or current track index not found in sidebar list view.",
       );
       return false;
     }
 
-    const nextItemSibling = currentActiveItem.nextElementSibling;
-    if (
-      !nextItemSibling ||
-      nextItemSibling.tagName.toLowerCase() !==
-        "ytd-playlist-panel-video-renderer"
-    ) {
-      console.log(
-        "[AUTOMATOR-TRACE] 🏁 Terminal list layout node index has been encountered.",
-      );
-      return false;
-    }
-
-    const targetAnchorLink = nextItemSibling.querySelector(
-      "a#thumbnail, a.ytd-playlist-panel-video-renderer",
+    const nextItem = allItems[activeIndex + 1];
+    const targetAnchorLink = nextItem.querySelector(
+      "a#thumbnail, a.ytd-playlist-panel-video-renderer, a[href*='v=']",
     );
-    if (!targetAnchorLink || !targetAnchorLink.href) return false;
+
+    if (!targetAnchorLink || !targetAnchorLink.href) {
+      console.error(
+        "[AUTOMATOR-TRACE] Found next row item, but could not resolve target navigation string anchor properties.",
+      );
+      return false;
+    }
 
     console.log(
-      "[YT-Audio] Sibling route verified. Navigating via full-page native load parameters.",
+      "[YT-Audio] Success! Navigation point resolved. Redirecting window to next playlist track:",
+      targetAnchorLink.href,
     );
-    window.location.href = targetAnchorLink.href;
+    window.location.href = targetAnchorLink.href; // TRIGGER RELOAD LOAD SEQUENCE
     return true;
   }
 

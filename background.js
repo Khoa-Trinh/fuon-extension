@@ -30,27 +30,45 @@ async function setupOffscreen() {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // 🛡️ THE GUARD RAIL: If the message originates internally (no tab), ignore it to break recursive loops
-  if (!sender.tab) return false;
+  // 🔥 CRITICAL FIX: Synchronously capture target tab ID right at the entry threshold
+  const currentSourceTabId = sender.tab ? sender.tab.id : null;
 
-  if (request.type === "PREPARE_AND_RESET_OFFSCREEN") {
-    setupOffscreen().then(() => {
-      chrome.runtime.sendMessage({ type: "OFFSCREEN_RESET" });
-      sendResponse({ success: true });
-    });
-    return true;
+  if (request.type === "FROM_OFFSCREEN_UPLOAD_COMPLETE") {
+    if (request.tabId) {
+      chrome.tabs.sendMessage(request.tabId, {
+        type: "UPLOAD_PIPELINE_COMPLETE",
+        success: request.success,
+        result: request.result,
+        error: request.error,
+      });
+    }
+    return false;
   }
 
-  if (
-    request.type === "TRICKLE_TO_OFFSCREEN" ||
-    request.type === "TRIGGER_OFFSCREEN_SUBMIT"
-  ) {
-    setupOffscreen().then(() => {
-      // Safely target the message down to the offscreen worker document window context
-      chrome.runtime.sendMessage(request, (response) => {
-        sendResponse(response);
+  // Handle messages coming down from content scripts safely
+  if (currentSourceTabId) {
+    if (request.type === "PREPARE_AND_RESET_OFFSCREEN") {
+      setupOffscreen().then(() => {
+        chrome.runtime.sendMessage({ type: "OFFSCREEN_RESET" });
+        sendResponse({ success: true });
       });
-    });
-    return true;
+      return true;
+    }
+
+    if (request.type === "TRICKLE_TO_OFFSCREEN") {
+      setupOffscreen().then(() => {
+        chrome.runtime.sendMessage(request);
+      });
+      return false;
+    }
+
+    if (request.type === "TRIGGER_OFFSCREEN_SUBMIT") {
+      setupOffscreen().then(() => {
+        // Apply the synchronously preserved historical reference parameters
+        request.tabId = currentSourceTabId;
+        chrome.runtime.sendMessage(request);
+      });
+      return false;
+    }
   }
 });
