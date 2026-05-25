@@ -18,34 +18,23 @@ if (window.__ytAudioContentInitialized) {
   let isHarvestingActive = false;
 
   function getChannelName() {
-    // 1. Try Watch Metadata (Most reliable for standard videos)
-    const watchMeta =
-      document.querySelector(
-        "ytd-watch-metadata #channel-name #text-container #text",
-      ) || document.querySelector("ytd-watch-metadata #channel-name a");
+    // Ordered by reliability based on your console tests
+    const reliableSelectors = [
+      "ytd-watch-metadata #channel-name #text a",
+      "ytd-channel-name #text a",
+      "#channel-name a", // General fallback for varying layouts
+    ];
 
-    // 2. Try Playlist Panel Header (Specific to Playlist pages)
-    const playlistMeta = document.querySelector(
-      "ytd-playlist-panel-renderer .ytd-channel-name #text",
-    );
-
-    // 3. Try Standard Channel Page Name
-    const std = document.querySelector("ytd-channel-name #text");
-
-    if (watchMeta && watchMeta.innerText.trim() !== "") {
-      return watchMeta.innerText.trim();
-    }
-    if (playlistMeta && playlistMeta.innerText.trim() !== "") {
-      return playlistMeta.innerText.trim();
-    }
-    if (std && std.innerText.trim() !== "") {
-      return std.innerText.trim();
+    for (const selector of reliableSelectors) {
+      const el = document.querySelector(selector);
+      // If element exists and has valid text content, return it immediately
+      if (el && el.innerText.trim() !== "") {
+        return el.innerText.trim();
+      }
     }
 
-    console.warn(
-      "[YT-Audio] Could not find channel name via standard selectors.",
-    );
-    return "Unknown Artist";
+    console.warn("[YT-Audio] Artist name not found in standard metadata.");
+    return "Unknown Artist"; // Default to your known artist if everything fails
   }
 
   // 1. UI Tree Nodes Construction
