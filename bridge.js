@@ -121,6 +121,13 @@
     const video = document.querySelector("video");
     if (!video) return;
 
+    // 🚨 STAGE 1: Deterministically clear out the backend before flushes run
+    window.postMessage(
+      { source: "yt-audio-bridge", type: "HARVEST_START" },
+      "*",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150)); // Sync buffer delay
+
     console.log(`${DEBUG_TAG} 🔄 Starting timeline sweep probe for: ${title}`);
 
     // Flush passive cache straight down the pipeline

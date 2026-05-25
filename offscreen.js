@@ -3,19 +3,21 @@ let offscreenChunks = [];
 let trackedBytes = 0;
 const chunkSignatures = new Set();
 let directSubmitLock = false;
-let supabaseClient = null;
+let supabaseClient = null; // Cached reference global register
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // 🛡️ FILTER GATES: Ignore direct cross-talk broadcasts from content.js
-  if (request.type !== "OFFSCREEN_RESET" && !request.fromBackground)
-    return false;
+  // Filter out raw un-routed cross-talk packets from the ecosystem
+  if (request.type !== "HARVEST_START" && !request.fromBackground) return false;
 
-  if (request.type === "OFFSCREEN_RESET") {
+  // 🧼 DETERMINISTIC SESSION RESET: Flushes memory tables right before harvesting starts
+  if (request.type === "HARVEST_START") {
     offscreenChunks = [];
     trackedBytes = 0;
     chunkSignatures.clear();
     directSubmitLock = false;
-    console.log("[YT-Audio-Offscreen] 🧼 Memory tables flushed completely.");
+    console.log(
+      "[YT-Audio-Offscreen] 🧼 Memory tables completely cleared for new harvest sequence pass.",
+    );
     return false;
   }
 
@@ -86,6 +88,7 @@ async function handleDirectCloudUpload(request) {
   const blob = new Blob(offscreenChunks, { type: request.mimeType });
   const { supabaseUrl, secretKey, bucketName } = request.config;
 
+  // Initialize the database client exactly once per worker environment cycle pass
   if (!supabaseClient) {
     supabaseClient = supabase.createClient(supabaseUrl, secretKey);
   }

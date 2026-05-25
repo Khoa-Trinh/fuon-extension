@@ -157,6 +157,11 @@ if (window.__ytAudioContentInitialized) {
     )
       return;
 
+    // 🔥 RELAY HARVEST START THRESHOLD TOKEN
+    if (event.data.type === "HARVEST_START") {
+      chrome.runtime.sendMessage({ type: "HARVEST_START" });
+    }
+
     if (event.data.type === "AUDIO_TYPE_DETECTED") {
       const mime = event.data.mimeType;
       const id = mime.includes("mp4") ? "140" : "251";
@@ -575,7 +580,6 @@ if (window.__ytAudioContentInitialized) {
       { source: "yt-audio-content", type: "RESET_BRIDGE_STREAM" },
       "*",
     );
-    chrome.runtime.sendMessage({ type: "PREPARE_AND_RESET_OFFSCREEN" });
 
     if (isStaticList) {
       isNavigationSettling = false;
