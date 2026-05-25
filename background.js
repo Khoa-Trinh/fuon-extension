@@ -30,22 +30,45 @@ async function setupOffscreen() {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // 🔥 CRITICAL FIX: Synchronously capture target tab ID right at the entry threshold
   const currentSourceTabId = sender.tab ? sender.tab.id : null;
 
+  // 📥 RETURN JOURNEY LINK: Intercept complete notice from offscreen worker
   if (request.type === "FROM_OFFSCREEN_UPLOAD_COMPLETE") {
+    console.log(
+      `[ROUTER-TRACE] 🔄 Background caught complete notice from offscreen. Targeting Tab ID: ${request.tabId}`,
+    );
+
     if (request.tabId) {
-      chrome.tabs.sendMessage(request.tabId, {
-        type: "UPLOAD_PIPELINE_COMPLETE",
-        success: request.success,
-        result: request.result,
-        error: request.error,
-      });
+      chrome.tabs.sendMessage(
+        request.tabId,
+        {
+          type: "UPLOAD_PIPELINE_COMPLETE",
+          success: request.success,
+          result: request.result,
+          error: request.error,
+        },
+        () => {
+          if (chrome.runtime.lastError) {
+            console.error(
+              `[ROUTER-TRACE] ❌ Dispatch failed to Tab ${request.tabId}:`,
+              chrome.runtime.lastError.message,
+            );
+          } else {
+            console.log(
+              `[ROUTER-TRACE] ✅ Dispatch successful to Tab ${request.tabId}`,
+            );
+          }
+        },
+      );
+    } else {
+      console.error(
+        "[ROUTER-TRACE] ❌ Aborted dispatch: request.tabId is missing/undefined.",
+      );
     }
     return false;
   }
 
-  // Handle messages coming down from content scripts safely
+  // Forward journey links from active page tabs
   if (currentSourceTabId) {
     if (request.type === "PREPARE_AND_RESET_OFFSCREEN") {
       setupOffscreen().then(() => {
@@ -64,8 +87,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (request.type === "TRIGGER_OFFSCREEN_SUBMIT") {
       setupOffscreen().then(() => {
-        // Apply the synchronously preserved historical reference parameters
         request.tabId = currentSourceTabId;
+        console.log(
+          `[ROUTER-TRACE] 🚀 Forwarding submission to offscreen. Locked Tab ID: ${request.tabId}`,
+        );
         chrome.runtime.sendMessage(request);
       });
       return false;

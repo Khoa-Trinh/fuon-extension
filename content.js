@@ -105,9 +105,13 @@ if (window.__ytAudioContentInitialized) {
 
   // 🔄 RE-ENGINEERED INBOUND MESSAGE LISTENER
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log(
+      `[ROUTER-TRACE] 📥 Content script received runtime message type: ${message.type}`,
+    );
+
     if (message.type === "UPLOAD_PIPELINE_COMPLETE") {
       console.log(
-        "[AUTOMATOR-TRACE] Success! Tab received completion message from router:",
+        "[AUTOMATOR-TRACE] Success! Tab matched completion token:",
         message,
       );
 

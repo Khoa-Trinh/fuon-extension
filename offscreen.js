@@ -36,9 +36,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     offscreenChunks.push(u8);
     trackedBytes += u8.byteLength;
 
-    // Verbose log restored!
     console.log(
-      `[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime.toFixed(1)}s | Total: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
+      `[YT-Audio-Offscreen] 📥 Captured Part #${offscreenChunks.length} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime.toFixed(1)}s | Total: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
     );
     return false;
   }
@@ -47,17 +46,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (directSubmitLock) return false;
     directSubmitLock = true;
 
+    console.log(
+      `[ROUTER-TRACE] 📥 Offscreen processing submit request. Identity Tab ID: ${request.tabId}`,
+    );
+
     handleDirectCloudUpload(request)
       .then((res) => {
         directSubmitLock = false;
-        sendResponse({ success: true, result: res });
+        console.log(
+          `[ROUTER-TRACE] 🌐 Cloud sync done. Relaying confirmation for Tab ID: ${request.tabId}`,
+        );
+        chrome.runtime.sendMessage({
+          type: "FROM_OFFSCREEN_UPLOAD_COMPLETE",
+          tabId: request.tabId,
+          success: true,
+          result: res,
+        });
       })
       .catch((err) => {
         directSubmitLock = false;
         console.error("[YT-Audio-Offscreen] ❌ Upload Pipeline Crash:", err);
-        sendResponse({ success: false, error: err.message });
+        chrome.runtime.sendMessage({
+          type: "FROM_OFFSCREEN_UPLOAD_COMPLETE",
+          tabId: request.tabId,
+          success: false,
+          error: err.message,
+        });
       });
-    return true;
+    return false;
   }
 });
 
