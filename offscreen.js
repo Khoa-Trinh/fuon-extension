@@ -15,7 +15,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chunkSignatures.clear();
     directSubmitLock = false;
     console.log(
-      "[YT-Audio-Offscreen] 🧼 Manual memory table flush executed via navigation sync.",
+      "[YT-Audio-Offscreen] 🧼 Memory tables cleared by Navigation Reset.",
     );
     sendResponse({ success: true });
     return true;
@@ -24,50 +24,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "TRICKLE_TO_OFFSCREEN") {
     const rawData = request.chunk;
     const len = rawData.length;
-    const meta = request.metadata || {
-      size: len,
-      playheadTime: 0,
-      streamType: "LIVE",
-    };
+    const meta = request.metadata || {};
 
     if (len === 0) return false;
 
-    // 🧼 ATOMIC RESET: If the bridge sends the resetSession flag, everything dies here first.
-    if (meta.resetSession) {
-      offscreenChunks = [];
-      trackedBytes = 0;
-      chunkSignatures.clear();
-      directSubmitLock = false;
-      console.log(
-        "%c[YT-Audio-Offscreen] 🧼 ATOMIC RESET: Memory cleared by Header Packet.",
-        "color: #a855f7; font-weight: bold;",
-      );
-    }
-
-    // 🛡️ DATA-DRIVEN RESET GATEWAY (Fallback): Intercept 'ftyp' magic bytes
-    const isStructuralHeader =
-      len > 8 &&
-      rawData[4] === 0x66 &&
-      rawData[5] === 0x74 &&
-      rawData[6] === 0x79 &&
-      rawData[7] === 0x70;
-    if (isStructuralHeader && !meta.resetSession) {
-      offscreenChunks = [];
-      trackedBytes = 0;
-      chunkSignatures.clear();
-      directSubmitLock = false;
-      console.log(
-        "%c[YT-Audio-Offscreen] 🧼 Magic 'ftyp' container box caught. Flushing old tables.",
-        "color: #a855f7; font-weight: bold;",
-      );
-    }
-
-    if (offscreenChunks.length > 0 && len < 300) {
-      console.log(
-        `[YT-Audio-Offscreen] 🛑 Block discarded: Fragment size is too small (${len} B).`,
-      );
-      return false;
-    }
+    // Filter structural redundant header duplicates safely
+    if (offscreenChunks.length > 0 && len < 300) return false;
 
     // 🧠 RIGOROUS DUPLICATE DETECTION CHECKSUM MATRIX
     let byteSum = 0;
@@ -80,7 +42,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (chunkSignatures.has(uniqueSignature)) {
       console.log(
-        `%c[YT-Audio-Offscreen] 🛑 Duplicate block dropped -> Origin: ${meta.streamType || "LIVE"} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s`,
+        `%c[YT-Audio-Offscreen] 🛑 Duplicate block dropped -> Origin: ${meta.type || "LIVE"} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s`,
         "color: #ef4444; font-weight: bold;",
       );
       return false;
@@ -92,10 +54,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     trackedBytes += u8.byteLength;
 
     console.log(
-      `%c[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} Stored Safely | Origin: ${meta.streamType || "LIVE"} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s | Pool Weight: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
-      meta.streamType === "PRELOADED_CACHE"
-        ? "color: #71717a;"
-        : "color: #38bdf8;",
+      `%c[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} Stored Safely | Origin: ${meta.type || "LIVE"} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s | Pool Weight: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
+      meta.type === "CACHE" ? "color: #71717a;" : "color: #38bdf8;",
     );
     return false;
   }

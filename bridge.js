@@ -25,10 +25,6 @@
       mimeType.includes("audio") &&
       (mimeType.includes("webm") || mimeType.includes("opus"))
     ) {
-      console.log(
-        `${DEBUG_TAG} 🛑 Denied layout codec mapping request for: ${mimeType} (Forcing M4A/AAC fallback)`,
-        "color: #ef4444;",
-      );
       return false;
     }
     return originalIsTypeSupported.call(this, mimeType);
@@ -120,29 +116,10 @@
     const video = document.querySelector("video");
     if (!video) return;
 
-    console.log(
-      `${DEBUG_TAG} 🔄 Initiating Sequential Atomic Harvest for: ${title}`,
-    );
+    console.log(`${DEBUG_TAG} 🚀 Dispatching Preload Cache to Offscreen...`);
 
-    isHarvesting = true;
-    lastChunkReceivedAt = Date.now();
-
-    for (const sb of activeAudioBuffers) {
-      try {
-        if (sb && sb.buffered.length > 0) {
-          sb.remove(0, 100000);
-          await new Promise((resolve) =>
-            sb.addEventListener("updateend", resolve, { once: true }),
-          );
-        }
-      } catch (err) {}
-    }
-
-    // 1. HARD SYNC: Send Header with resetSession: true (Forces Offscreen Flush)
+    // 1. Send Header + Cache immediately
     if (window.__currentTrackInitHeader) {
-      console.log(
-        `${DEBUG_TAG} 🚀 Transmitting Master Initialization Header (Atomic Reset)...`,
-      );
       window.postMessage(
         {
           source: "yt-audio-bridge",
@@ -151,49 +128,43 @@
           metadata: {
             size: window.__currentTrackInitHeader.byteLength,
             playheadTime: 0.0,
-            streamType: "CONTAINER_HEADER",
-            resetSession: true,
+            type: "HEADER",
           },
         },
         "*",
       );
     }
 
-    // 2. ZERO-LATENCY CACHE FLUSH
-    if (passivePreloadCache.length > 0) {
-      console.log(
-        `${DEBUG_TAG} ⚡ Flushing ${passivePreloadCache.length} passive preloader cache blocks...`,
-      );
-      passivePreloadCache.forEach((item) => {
-        const isHeaderDup =
-          item.chunk[4] === 0x66 &&
-          item.chunk[5] === 0x74 &&
-          item.chunk[6] === 0x79 &&
-          item.chunk[7] === 0x70;
-        if (isHeaderDup) return;
+    // PASSING CACHE: We send the cache but we do NOT clear passivePreloadCache here
+    // because the content script needs to maintain state.
+    passivePreloadCache.forEach((p) => {
+      const isHeaderDup =
+        p.chunk[4] === 0x66 &&
+        p.chunk[5] === 0x74 &&
+        p.chunk[6] === 0x79 &&
+        p.chunk[7] === 0x70;
+      if (isHeaderDup) return;
 
-        window.postMessage(
-          {
-            source: "yt-audio-bridge",
-            type: "AUDIO_CHUNK",
-            chunk: item.chunk,
-            metadata: {
-              size: item.chunk.byteLength,
-              playheadTime: item.playheadTime,
-              streamType: "PRELOADED_CACHE",
-            },
+      window.postMessage(
+        {
+          source: "yt-audio-bridge",
+          type: "AUDIO_CHUNK",
+          chunk: p.chunk,
+          metadata: {
+            size: p.chunk.byteLength,
+            playheadTime: p.playheadTime,
+            type: "CACHE",
           },
-          "*",
-        );
-      });
-      passivePreloadCache = [];
-    }
+        },
+        "*",
+      );
+    });
 
-    // 3. SEQUENTIAL SWEEP
-    video.currentTime = 0.001;
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    isHarvesting = true;
+    lastChunkReceivedAt = Date.now();
 
-    let currentStep = 10;
+    // 2. Scrub timeline from end of cache to duration
+    let currentStep = 30;
     const stepSize = 10;
     const safeEndBoundary = duration - 2.0;
 
@@ -209,7 +180,6 @@
     isHarvesting = false;
     try {
       video.pause();
-      video.currentTime = 0;
     } catch (e) {}
 
     let idleWindow = 2000;
