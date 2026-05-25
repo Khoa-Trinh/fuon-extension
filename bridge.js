@@ -134,10 +134,10 @@
       );
     }
 
-    // 2. Dump Cache with a 50ms delay to prevent message queue overflow
+    // 2. Dump Cache with explicit Await Logic
     if (passivePreloadCache.length > 0) {
       console.log(
-        `${DEBUG_TAG} ⚡ Flushing ${passivePreloadCache.length} cached blocks with throttle...`,
+        `${DEBUG_TAG} ⚡ Flushing ${passivePreloadCache.length} cached blocks...`,
       );
       for (const item of passivePreloadCache) {
         const isHeaderDup =
@@ -160,10 +160,13 @@
           },
           "*",
         );
-        // Small delay to allow the browser's message port to clear
-        await new Promise((r) => setTimeout(r, 50));
+
+        // Wait for the browser message loop to actually dispatch this
+        await new Promise((r) => setTimeout(r, 20));
       }
       passivePreloadCache = [];
+      // Give the offscreen worker an extra 200ms to clear its event queue before scrubbing starts
+      await new Promise((r) => setTimeout(r, 200));
     }
 
     isHarvesting = true;

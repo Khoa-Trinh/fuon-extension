@@ -49,25 +49,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Filter structural redundant header duplicates safely
     if (offscreenChunks.length > 0 && len < 300) return false;
 
-    // 2. Add signature fingerprint to prevent duplicate processing
-    const sig = `${len}_${rawData[0]}_${rawData[len - 1]}`;
+    // 🧠 IMPROVED SIGNATURE: Include metadata type to prevent overlapping
+    const sig = `${len}_${rawData[0]}_${rawData[len - 1]}_${meta.streamType || "LIVE"}`;
+
     if (chunkSignatures.has(sig)) {
-      console.log(
-        `%c[YT-Audio-Offscreen] 🛑 Duplicate block dropped | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s`,
-        "color: #ef4444; font-weight: bold;",
-      );
+      console.log(`[YT-Audio-Offscreen] 🛑 Duplicate block dropped: ${sig}`);
       return false;
     }
 
     chunkSignatures.add(sig);
-    offscreenChunks.push(new Uint8Array(rawData));
+    offscreenChunks.push(new Uint8Array(rawData)); // Use push, NEVER unshift or overwrite
     trackedBytes += len;
 
     console.log(
-      `%c[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} Stored | Origin: ${meta.streamType || "LIVE"} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s | Pool Weight: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
-      meta.streamType === "PRELOADED_CACHE"
-        ? "color: #71717a;"
-        : "color: #38bdf8;",
+      `[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} | Size: ${(len / 1024).toFixed(1)} KB | Type: ${meta.streamType || "LIVE"}`,
     );
     return false;
   }
