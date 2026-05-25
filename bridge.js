@@ -18,12 +18,17 @@
     DEBUG_STYLE,
   );
 
+  // 🛡️ AUDIO PROFILE LOCK: Force fallback to M4A/AAC format over Opus
   const originalIsTypeSupported = MediaSource.isTypeSupported;
   MediaSource.isTypeSupported = function (mimeType) {
     if (
       mimeType.includes("audio") &&
       (mimeType.includes("webm") || mimeType.includes("opus"))
     ) {
+      console.log(
+        `${DEBUG_TAG} 🛑 Denied layout codec mapping request for: ${mimeType} (Forcing M4A/AAC fallback)`,
+        "color: #ef4444;",
+      );
       return false;
     }
     return originalIsTypeSupported.call(this, mimeType);
@@ -84,7 +89,7 @@
         );
 
         if (!isHarvesting) {
-          if (passivePreloadCache.length < 150) {
+          if (passivePreloadCache.length < 200) {
             passivePreloadCache.push({ chunk, playheadTime: playhead });
           }
           return originalAppendBuffer.apply(this, arguments);
@@ -115,6 +120,10 @@
     const video = document.querySelector("video");
     if (!video) return;
 
+    console.log(
+      `${DEBUG_TAG} 🔄 Initiating Sequential Atomic Harvest for: ${title}`,
+    );
+
     isHarvesting = true;
     lastChunkReceivedAt = Date.now();
 
@@ -129,14 +138,10 @@
       } catch (err) {}
     }
 
-    console.log(
-      `${DEBUG_TAG} 🔄 Initiating sequential timeline harvest stream for: ${title}`,
-    );
-
-    // 1. Send the Initialization Header explicitly
+    // 1. HARD SYNC: Send Header with resetSession: true (Forces Offscreen Flush)
     if (window.__currentTrackInitHeader) {
       console.log(
-        `${DEBUG_TAG} 🚀 Transmitting Master Initialization Header Block...`,
+        `${DEBUG_TAG} 🚀 Transmitting Master Initialization Header (Atomic Reset)...`,
       );
       window.postMessage(
         {
@@ -147,16 +152,17 @@
             size: window.__currentTrackInitHeader.byteLength,
             playheadTime: 0.0,
             streamType: "CONTAINER_HEADER",
+            resetSession: true,
           },
         },
         "*",
       );
     }
 
-    // 2. Dump the entire preload cache down the pipeline
+    // 2. ZERO-LATENCY CACHE FLUSH
     if (passivePreloadCache.length > 0) {
       console.log(
-        `${DEBUG_TAG} ⚡ Flushing ${passivePreloadCache.length} passive preloader cache blocks down the wire...`,
+        `${DEBUG_TAG} ⚡ Flushing ${passivePreloadCache.length} passive preloader cache blocks...`,
       );
       passivePreloadCache.forEach((item) => {
         const isHeaderDup =
@@ -164,7 +170,7 @@
           item.chunk[5] === 0x74 &&
           item.chunk[6] === 0x79 &&
           item.chunk[7] === 0x70;
-        if (isHeaderDup) return; // Prevent duplicate headers
+        if (isHeaderDup) return;
 
         window.postMessage(
           {
@@ -183,7 +189,7 @@
       passivePreloadCache = [];
     }
 
-    // 3. Scrub timeline from the very beginning (0.001) to end to force fetching of all remaining data
+    // 3. SEQUENTIAL SWEEP
     video.currentTime = 0.001;
     await new Promise((resolve) => setTimeout(resolve, 400));
 
@@ -194,7 +200,7 @@
     while (currentStep < safeEndBoundary) {
       video.currentTime = currentStep;
       console.log(
-        `${DEBUG_TAG} MAP Scrubbing layout tracking head -> Target: ${currentStep.toFixed(1)}s / ${duration.toFixed(1)}s`,
+        `${DEBUG_TAG} 🗺️ Scrubbing layout tracking head -> Target: ${currentStep.toFixed(1)}s / ${duration.toFixed(1)}s`,
       );
       await new Promise((resolve) => setTimeout(resolve, 400));
       currentStep += stepSize;

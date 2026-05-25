@@ -32,21 +32,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (len === 0) return false;
 
-    // 🛡️ DATA-DRIVEN RESET GATEWAY: Intercept 'ftyp' magic bytes to trigger clean session boundaries
+    // 🧼 ATOMIC RESET: If the bridge sends the resetSession flag, everything dies here first.
+    if (meta.resetSession) {
+      offscreenChunks = [];
+      trackedBytes = 0;
+      chunkSignatures.clear();
+      directSubmitLock = false;
+      console.log(
+        "%c[YT-Audio-Offscreen] 🧼 ATOMIC RESET: Memory cleared by Header Packet.",
+        "color: #a855f7; font-weight: bold;",
+      );
+    }
+
+    // 🛡️ DATA-DRIVEN RESET GATEWAY (Fallback): Intercept 'ftyp' magic bytes
     const isStructuralHeader =
       len > 8 &&
       rawData[4] === 0x66 &&
       rawData[5] === 0x74 &&
       rawData[6] === 0x79 &&
       rawData[7] === 0x70;
-
-    if (isStructuralHeader) {
+    if (isStructuralHeader && !meta.resetSession) {
       offscreenChunks = [];
       trackedBytes = 0;
       chunkSignatures.clear();
       directSubmitLock = false;
       console.log(
-        `%c[YT-Audio-Offscreen] 🧼 Magic 'ftyp' master container box caught (${len} B). Flushing arrays. Instantiating track Part #1.`,
+        "%c[YT-Audio-Offscreen] 🧼 Magic 'ftyp' container box caught. Flushing old tables.",
         "color: #a855f7; font-weight: bold;",
       );
     }
@@ -59,7 +70,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     // 🧠 RIGOROUS DUPLICATE DETECTION CHECKSUM MATRIX
-    // Samples 20 distinct points inside the payload to guarantee a unique, collision-proof fingerprint
     let byteSum = 0;
     let step = Math.max(1, Math.floor(len / 20));
     for (let i = 0; i < len; i += step) {
@@ -70,7 +80,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (chunkSignatures.has(uniqueSignature)) {
       console.log(
-        `%c[YT-Audio-Offscreen] 🛑 Duplicate block dropped -> Origin: ${meta.streamType} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime.toFixed(2)}s`,
+        `%c[YT-Audio-Offscreen] 🛑 Duplicate block dropped -> Origin: ${meta.streamType || "LIVE"} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s`,
         "color: #ef4444; font-weight: bold;",
       );
       return false;
@@ -82,7 +92,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     trackedBytes += u8.byteLength;
 
     console.log(
-      `%c[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} Stored Safely | Origin: ${meta.streamType} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime.toFixed(2)}s | Pool Weight: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
+      `%c[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} Stored Safely | Origin: ${meta.streamType || "LIVE"} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime?.toFixed(2)}s | Pool Weight: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
       meta.streamType === "PRELOADED_CACHE"
         ? "color: #71717a;"
         : "color: #38bdf8;",
