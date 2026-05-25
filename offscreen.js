@@ -5,6 +5,10 @@ const chunkSignatures = new Set();
 let directSubmitLock = false;
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // 🛡️ FILTER GATES: Ignore direct cross-talk broadcasts from content.js
+  if (request.type !== "OFFSCREEN_RESET" && !request.fromBackground)
+    return false;
+
   if (request.type === "OFFSCREEN_RESET") {
     offscreenChunks = [];
     trackedBytes = 0;
@@ -17,8 +21,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "TRICKLE_TO_OFFSCREEN") {
     const rawData = request.chunk;
     const len = rawData.length;
-    const meta = request.metadata || { size: len, playheadTime: 0 };
-
     if (len === 0) return false;
     if (offscreenChunks.length > 0 && len < 300) return false;
 
@@ -37,7 +39,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     trackedBytes += u8.byteLength;
 
     console.log(
-      `[YT-Audio-Offscreen] 📥 Captured Part #${offscreenChunks.length} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime.toFixed(1)}s | Total: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
+      `[YT-Audio-Offscreen] 📥 Captured Part #${offscreenChunks.length} | Size: ${(len / 1024).toFixed(1)} KB`,
     );
     return false;
   }

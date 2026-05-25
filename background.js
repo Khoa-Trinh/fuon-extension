@@ -30,9 +30,7 @@ async function setupOffscreen() {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  const currentSourceTabId = sender.tab ? sender.tab.id : null;
-
-  // 📥 RETURN JOURNEY LINK: Intercept complete notice from offscreen worker
+  // 🔄 Handle return journey message deliveries
   if (request.type === "FROM_OFFSCREEN_UPLOAD_COMPLETE") {
     console.log(
       `[ROUTER-TRACE] 🔄 Background caught complete notice from offscreen. Targeting Tab ID: ${request.tabId}`,
@@ -60,40 +58,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
         },
       );
-    } else {
-      console.error(
-        "[ROUTER-TRACE] ❌ Aborted dispatch: request.tabId is missing/undefined.",
-      );
     }
     return false;
   }
 
-  // Forward journey links from active page tabs
-  if (currentSourceTabId) {
-    if (request.type === "PREPARE_AND_RESET_OFFSCREEN") {
-      setupOffscreen().then(() => {
-        chrome.runtime.sendMessage({ type: "OFFSCREEN_RESET" });
-        sendResponse({ success: true });
-      });
-      return true;
-    }
+  // Guard Rail: Only intercept primary message pushes originating from content tabs
+  if (!sender.tab) return false;
 
-    if (request.type === "TRICKLE_TO_OFFSCREEN") {
-      setupOffscreen().then(() => {
-        chrome.runtime.sendMessage(request);
-      });
-      return false;
-    }
+  const currentSourceTabId = sender.tab.id;
 
-    if (request.type === "TRIGGER_OFFSCREEN_SUBMIT") {
-      setupOffscreen().then(() => {
-        request.tabId = currentSourceTabId;
-        console.log(
-          `[ROUTER-TRACE] 🚀 Forwarding submission to offscreen. Locked Tab ID: ${request.tabId}`,
-        );
-        chrome.runtime.sendMessage(request);
-      });
-      return false;
-    }
+  if (request.type === "PREPARE_AND_RESET_OFFSCREEN") {
+    setupOffscreen().then(() => {
+      chrome.runtime.sendMessage({ type: "OFFSCREEN_RESET" });
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  if (
+    request.type === "TRICKLE_TO_OFFSCREEN" ||
+    request.type === "TRIGGER_OFFSCREEN_SUBMIT"
+  ) {
+    setupOffscreen().then(() => {
+      request.tabId = currentSourceTabId;
+      request.fromBackground = true; // 🔥 Set authentication flag
+      chrome.runtime.sendMessage(request);
+    });
+    return false;
   }
 });
