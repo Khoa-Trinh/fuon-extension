@@ -336,15 +336,15 @@ if (window.__ytAudioContentInitialized) {
           const firstBtn = contentArea.querySelector("button");
           if (firstBtn && !firstBtn.disabled) {
             // Give the bridge 500ms to stabilize cache after UI load
-            setTimeout(() => {
-              chrome.runtime.sendMessage(
-                { type: "PREPARE_AND_RESET_OFFSCREEN" },
-                (res) => {
-                  if (res && res.success) {
-                    triggerTrackHarvest(firstBtn);
-                  }
-                },
-              );
+            setTimeout(async () => {
+              await new Promise((resolve) => {
+                chrome.runtime.sendMessage(
+                  { type: "PREPARE_AND_RESET_OFFSCREEN" },
+                  resolve,
+                );
+              });
+              // Now trigger the harvest safely
+              triggerTrackHarvest(firstBtn);
             }, 500);
           }
         }

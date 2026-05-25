@@ -124,11 +124,8 @@
       `${DEBUG_TAG} 🔄 Initiating Sequential Atomic Harvest for: ${title}`,
     );
 
-    // 1. HARD SYNC: Send Header (Forces Offscreen Flush/Lock)
+    // 1. Send Header
     if (window.__currentTrackInitHeader) {
-      console.log(
-        `${DEBUG_TAG} 🚀 Transmitting Master Initialization Header...`,
-      );
       window.postMessage(
         {
           source: "yt-audio-bridge",
@@ -142,38 +139,28 @@
         },
         "*",
       );
-      await new Promise((r) => setTimeout(r, 50));
     }
 
-    // 2. BATCH DELIVERY: Send all cache chunks in one massive array to prevent queue drops
-    if (passivePreloadCache.length > 0) {
-      console.log(
-        `${DEBUG_TAG} ⚡ Batch flushing ${passivePreloadCache.length} cached blocks...`,
-      );
-
-      const cacheBatch = passivePreloadCache.map((p) => ({
-        chunk: p.chunk,
-        metadata: {
-          size: p.chunk.byteLength,
-          playheadTime: p.playheadTime,
-          streamType: "PRELOADED_CACHE",
-        },
-      }));
-
+    // 2. Dump Cache
+    for (const item of passivePreloadCache) {
       window.postMessage(
         {
           source: "yt-audio-bridge",
-          type: "AUDIO_BATCH",
-          batch: cacheBatch,
+          type: "AUDIO_CHUNK",
+          chunk: item.chunk,
+          metadata: {
+            size: item.chunk.byteLength,
+            playheadTime: item.playheadTime,
+            streamType: "PRELOADED_CACHE",
+          },
         },
         "*",
       );
-
-      passivePreloadCache = [];
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 20));
     }
+    passivePreloadCache = [];
 
-    // 3. ONLY NOW set isHarvesting to true (Live data won't interfere with Batch delivery)
+    // 3. Scrubbing Live
     isHarvesting = true;
     lastChunkReceivedAt = Date.now();
 
