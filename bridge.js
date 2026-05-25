@@ -81,6 +81,12 @@
           );
         }
 
+        // 🔥 Telemetry log block fully restored
+        console.log(
+          `%c[YT-Audio-Bridge] 📦 Captured Block | Size: ${chunk.byteLength} B | Playhead: ${video ? video.currentTime.toFixed(2) : "0"}s | State: ${isHarvesting ? "HARVEST_LIVE" : "PASSIVE_CACHE"}`,
+          isHarvesting ? "color: #38bdf8;" : "color: #71717a;",
+        );
+
         if (!isHarvesting) {
           if (passivePreloadCache.length < 60) {
             passivePreloadCache.push({
@@ -115,27 +121,14 @@
     const video = document.querySelector("video");
     if (!video) return;
 
+    console.log(
+      `${DEBUG_TAG} 🔄 Processing download queue instantly using preloaded cache for: ${title}`,
+    );
+
     isHarvesting = true;
     lastChunkReceivedAt = Date.now();
 
-    for (const sb of activeAudioBuffers) {
-      try {
-        if (sb && sb.buffered.length > 0) {
-          sb.remove(0, 100000);
-          await new Promise((resolve) =>
-            sb.addEventListener("updateend", resolve, { once: true }),
-          );
-        }
-      } catch (err) {}
-    }
-
-    console.log(
-      `${DEBUG_TAG} 🔄 Initiating sequential timeline harvest stream for: ${title}`,
-    );
-
-    let isFirstPack = true;
-
-    // 👑 1. Force out the container box header block first, tagged to atomically reset offscreen memory
+    // 👑 1. Send the structural container header down the wire first to reset the offscreen table cleanly
     if (window.__currentTrackInitHeader) {
       window.postMessage(
         {
@@ -145,24 +138,21 @@
           metadata: {
             size: window.__currentTrackInitHeader.byteLength,
             playheadTime: 0.0,
-            resetSession: true,
           },
         },
         "*",
       );
-      isFirstPack = false;
     }
 
-    // ⚡ 2. Flush passive history stream cache directly down the wire
+    // ⚡ 2. Flush the passive preloaded cache immediately to cover the first 30-40 seconds of audio
     if (passivePreloadCache.length > 0) {
       passivePreloadCache.forEach((item) => {
-        // Filter out redundant copies of the ftyp container header box
         const isHeaderDup =
           item.chunk[4] === 0x66 &&
           item.chunk[5] === 0x74 &&
           item.chunk[6] === 0x79 &&
           item.chunk[7] === 0x70;
-        if (isHeaderDup) return;
+        if (isHeaderDup) return; // Prevent duplicate header entries
 
         window.postMessage(
           {
@@ -172,39 +162,33 @@
             metadata: {
               size: item.chunk.byteLength,
               playheadTime: item.playheadTime,
-              resetSession: isFirstPack, // Fallback reset trigger if initialization container was missing
             },
           },
           "*",
         );
-        isFirstPack = false;
       });
       passivePreloadCache = [];
     }
 
-    // 🔬 3. Sweep timeline partitions
-    video.currentTime = 0.001;
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    let currentStep = 10;
+    // 🔬 3. Jump the timeline scrubbing loop directly to 30 seconds to fetch the rest of the song
+    let currentStep = 30;
     const stepSize = 10;
     const safeEndBoundary = duration - 5.0;
 
     while (currentStep < safeEndBoundary) {
       video.currentTime = currentStep;
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      await new Promise((resolve) => setTimeout(resolve, 350)); // Faster seek cadence
       currentStep += stepSize;
     }
 
     isHarvesting = false;
     try {
       video.pause();
-      video.currentTime = 0;
     } catch (e) {}
 
-    let idleWindow = 2000;
+    let idleWindow = 1500;
     while (Date.now() - lastChunkReceivedAt < idleWindow) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
     window.postMessage(

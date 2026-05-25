@@ -64,15 +64,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   const currentSourceTabId = sender.tab.id;
 
-  if (request.type === "PREPARE_AND_RESET_OFFSCREEN") {
-    setupOffscreen().then(() => {
-      chrome.runtime.sendMessage({ type: "OFFSCREEN_RESET" });
-      sendResponse({ success: true });
-    });
-    return true;
-  }
-
   if (
+    request.type === "PREPARE_AND_RESET_OFFSCREEN" ||
     request.type === "TRICKLE_TO_OFFSCREEN" ||
     request.type === "TRIGGER_OFFSCREEN_SUBMIT"
   ) {

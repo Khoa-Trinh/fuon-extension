@@ -103,7 +103,7 @@ if (window.__ytAudioContentInitialized) {
     );
   }
 
-  // 🔄 RE-ENGINEERED INBOUND MESSAGE LISTENER
+  // 🔄 INTERNAL RUNTIME NOTIFICATION LISTENER LAYER
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log(
       `[ROUTER-TRACE] 📥 Content script received runtime message type: ${message.type}`,
@@ -141,7 +141,10 @@ if (window.__ytAudioContentInitialized) {
           }
         });
       } else {
-        console.error("[AUTOMATOR-TRACE] Upload failed:", message.error);
+        console.warn(
+          "[AUTOMATOR-TRACE] ❌ Async transaction reported failure metrics status:",
+          message.error,
+        );
         chrome.storage.local.set({ playlist_automator_active: false }, () => {
           renderInner();
         });
@@ -219,7 +222,6 @@ if (window.__ytAudioContentInitialized) {
             console.warn(
               "[AUTOMATOR-TRACE] 🛑 Manual UI kill switch button clicked.",
             );
-            // Force reset state flags immediately so UI unfreezes on click
             isUploading = false;
             isHarvestingActive = false;
             chrome.storage.local.set(
@@ -415,17 +417,14 @@ if (window.__ytAudioContentInitialized) {
     });
   }
 
-  // 🛡️ HARDENED SIDEBAR LOOP MATRIX INDEX FINDER
   function executeFullPageNavigation() {
     console.log(
       "[YT-Audio] Scanning sidebar playlist renderers grid layout arrays...",
     );
-
     const allItems = Array.from(
       document.querySelectorAll("ytd-playlist-panel-video-renderer"),
     );
 
-    // 🧠 Bulletproof Video-ID Matching Strategy (Immune to YouTube DOM attribute mutations)
     const urlParams = new URLSearchParams(window.location.search);
     const currentVidId = urlParams.get("v");
 
@@ -468,7 +467,7 @@ if (window.__ytAudioContentInitialized) {
       "[YT-Audio] Success! Navigation point resolved. Redirecting window to next playlist track:",
       targetAnchorLink.href,
     );
-    window.location.href = targetAnchorLink.href; // TRIGGER RELOAD LOAD SEQUENCE
+    window.location.href = targetAnchorLink.href;
     return true;
   }
 
@@ -576,6 +575,9 @@ if (window.__ytAudioContentInitialized) {
       "*",
     );
 
+    // ⚡ INSTANT WARM-UP TRIGGER: Wake up offscreen.js immediately on page click to catch early headers
+    chrome.runtime.sendMessage({ type: "PREPARE_AND_RESET_OFFSCREEN" });
+
     if (isStaticList) {
       isNavigationSettling = false;
       pollVideoTitle();
@@ -590,14 +592,8 @@ if (window.__ytAudioContentInitialized) {
       const keys = Object.keys(detectedFormats);
       checkAttempts++;
 
-      if (
-        videoEl &&
-        !isNaN(videoEl.duration) &&
-        videoEl.duration > 0 &&
-        videoEl.readyState >= 3 &&
-        keys.length > 0 &&
-        checkAttempts > 4
-      ) {
+      // 🔥 OPTIMIZATION: Released gates immediately when layout formats sync
+      if (videoEl && keys.length > 0) {
         clearInterval(autoSettleInterval);
         console.log(
           "[YT-Audio] New track instance media layers normalized perfectly. Releasing gates.",
@@ -615,7 +611,7 @@ if (window.__ytAudioContentInitialized) {
         isNavigationSettling = false;
         pollVideoTitle();
       }
-    }, 500);
+    }, 200); // Faster polling rate
   }
 
   window.addEventListener("yt-navigate-finish", handleNavigationReset);

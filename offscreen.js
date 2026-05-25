@@ -3,7 +3,7 @@ let offscreenChunks = [];
 let trackedBytes = 0;
 const chunkSignatures = new Set();
 let directSubmitLock = false;
-let supabaseClient = null; // Caching global client context variable pointer
+let supabaseClient = null;
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type !== "OFFSCREEN_RESET" && !request.fromBackground)
@@ -15,7 +15,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chunkSignatures.clear();
     directSubmitLock = false;
     console.log(
-      "[YT-Audio-Offscreen] 🧼 Manual reset forced via navigation hook.",
+      "[YT-Audio-Offscreen] 🧼 Manual memory flush executed via navigation sync.",
     );
     return false;
   }
@@ -23,22 +23,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "TRICKLE_TO_OFFSCREEN") {
     const rawData = request.chunk;
     const len = rawData.length;
-    const meta = request.metadata || {};
 
     if (len === 0) return false;
 
-    // 🧼 ATOMIC IN-PAYLOAD RESET BOUNDARY GATES
-    if (meta.resetSession) {
+    // 🛡️ DATA-DRIVEN RESET: Look up 'ftyp' magic bytes inside the payload (offset indices 4-7 equal 'f' 't' 'y' 'p')
+    const isStructuralHeader =
+      len > 8 &&
+      rawData[4] === 0x66 &&
+      rawData[5] === 0x74 &&
+      rawData[6] === 0x79 &&
+      rawData[7] === 0x70;
+
+    if (isStructuralHeader) {
       offscreenChunks = [];
       trackedBytes = 0;
       chunkSignatures.clear();
       directSubmitLock = false;
       console.log(
-        "[YT-Audio-Offscreen] 🧼 Atomic table flush executed via inline packet token. Capturing initialization container box...",
+        "[YT-Audio-Offscreen] 🧼 Magic 'ftyp' container box box caught. Flush complete. Instantiating track Part #1.",
       );
     }
 
-    // Filter structural redundant header duplicates safely
+    // Block redundant structural container re-fetches safely
     if (offscreenChunks.length > 0 && len < 300) return false;
 
     let byteSum = 0;
