@@ -317,6 +317,7 @@ if (window.__ytAudioContentInitialized) {
           contentArea.appendChild(btn);
         });
 
+        // 🔥 HANDSHAKE VALIDATION ENFORCED HERE: Guarantees background context is ready before auto-clicks occur
         if (
           isAutoActive &&
           keys.length > 0 &&
@@ -325,7 +326,16 @@ if (window.__ytAudioContentInitialized) {
           !isHarvestingActive
         ) {
           const firstBtn = contentArea.querySelector("button");
-          if (firstBtn && !firstBtn.disabled) triggerTrackHarvest(firstBtn);
+          if (firstBtn && !firstBtn.disabled) {
+            chrome.runtime.sendMessage(
+              { type: "PREPARE_AND_RESET_OFFSCREEN" },
+              (res) => {
+                if (res && res.success) {
+                  triggerTrackHarvest(firstBtn);
+                }
+              },
+            );
+          }
         }
       }
     });
@@ -575,7 +585,7 @@ if (window.__ytAudioContentInitialized) {
       "*",
     );
 
-    // ⚡ INSTANT WARM-UP TRIGGER: Wake up offscreen.js immediately on page click to catch early headers
+    // 🔥 WARM-UP TRIGGER RE-ADDED: Instantly ensures the offscreen canvas document is awake and tracking
     chrome.runtime.sendMessage({ type: "PREPARE_AND_RESET_OFFSCREEN" });
 
     if (isStaticList) {
@@ -592,7 +602,6 @@ if (window.__ytAudioContentInitialized) {
       const keys = Object.keys(detectedFormats);
       checkAttempts++;
 
-      // 🔥 OPTIMIZATION: Released gates immediately when layout formats sync
       if (videoEl && keys.length > 0) {
         clearInterval(autoSettleInterval);
         console.log(
@@ -611,7 +620,7 @@ if (window.__ytAudioContentInitialized) {
         isNavigationSettling = false;
         pollVideoTitle();
       }
-    }, 200); // Faster polling rate
+    }, 200);
   }
 
   window.addEventListener("yt-navigate-finish", handleNavigationReset);

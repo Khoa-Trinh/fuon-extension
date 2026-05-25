@@ -15,9 +15,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chunkSignatures.clear();
     directSubmitLock = false;
     console.log(
-      "[YT-Audio-Offscreen] 🧼 Manual memory flush executed via navigation sync.",
+      "[YT-Audio-Offscreen] 🧼 Manual memory table flush executed via navigation sync.",
     );
-    return false;
+    sendResponse({ success: true });
+    return true;
   }
 
   if (request.type === "TRICKLE_TO_OFFSCREEN") {
@@ -26,7 +27,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (len === 0) return false;
 
-    // 🛡️ DATA-DRIVEN RESET: Look up 'ftyp' magic bytes inside the payload (offset indices 4-7 equal 'f' 't' 'y' 'p')
+    // 🛡️ DATA-DRIVEN RESET GATEWAY: Intercept 'ftyp' magic bytes to trigger clean session boundaries
     const isStructuralHeader =
       len > 8 &&
       rawData[4] === 0x66 &&
@@ -40,11 +41,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       chunkSignatures.clear();
       directSubmitLock = false;
       console.log(
-        "[YT-Audio-Offscreen] 🧼 Magic 'ftyp' container box box caught. Flush complete. Instantiating track Part #1.",
+        "[YT-Audio-Offscreen] 🧼 Magic 'ftyp' container box caught. Flushing old tables. Instantiating track Part #1.",
       );
     }
 
-    // Block redundant structural container re-fetches safely
     if (offscreenChunks.length > 0 && len < 300) return false;
 
     let byteSum = 0;
@@ -123,7 +123,7 @@ async function handleDirectCloudUpload(request) {
     ? cleanString(request.playlistTitle)
     : "Single_Videos";
 
-  const fileName = `${cleanTitle}-${Date.now()}.${request.extension}`;
+  const fileName = `${Date.now()}-${cleanTitle}.${request.extension}`;
   const filePath = `${folderPrefix}/${fileName}`;
 
   console.log(
@@ -159,7 +159,5 @@ async function handleDirectCloudUpload(request) {
     "[YT-Audio-Offscreen] Cloud transaction complete! Synchronized perfectly.",
   );
 
-  offscreenChunks = [];
-  chunkSignatures.clear();
   return { fileName, size: blob.size, dbData };
 }

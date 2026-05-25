@@ -18,17 +18,12 @@
     DEBUG_STYLE,
   );
 
-  // 🛡️ AUDIO PROFILE LOCK: Force fallback to M4A/AAC format over Opus
   const originalIsTypeSupported = MediaSource.isTypeSupported;
   MediaSource.isTypeSupported = function (mimeType) {
     if (
       mimeType.includes("audio") &&
       (mimeType.includes("webm") || mimeType.includes("opus"))
     ) {
-      console.log(
-        `${DEBUG_TAG} 🛑 Denied layout codec mapping request for: ${mimeType} (Forcing M4A/AAC fallback)`,
-        "color: #ef4444;",
-      );
       return false;
     }
     return originalIsTypeSupported.call(this, mimeType);
@@ -81,12 +76,6 @@
           );
         }
 
-        // 🔥 Telemetry log block fully restored
-        console.log(
-          `%c[YT-Audio-Bridge] 📦 Captured Block | Size: ${chunk.byteLength} B | Playhead: ${video ? video.currentTime.toFixed(2) : "0"}s | State: ${isHarvesting ? "HARVEST_LIVE" : "PASSIVE_CACHE"}`,
-          isHarvesting ? "color: #38bdf8;" : "color: #71717a;",
-        );
-
         if (!isHarvesting) {
           if (passivePreloadCache.length < 60) {
             passivePreloadCache.push({
@@ -121,14 +110,24 @@
     const video = document.querySelector("video");
     if (!video) return;
 
-    console.log(
-      `${DEBUG_TAG} 🔄 Processing download queue instantly using preloaded cache for: ${title}`,
-    );
-
     isHarvesting = true;
     lastChunkReceivedAt = Date.now();
 
-    // 👑 1. Send the structural container header down the wire first to reset the offscreen table cleanly
+    for (const sb of activeAudioBuffers) {
+      try {
+        if (sb && sb.buffered.length > 0) {
+          sb.remove(0, 100000);
+          await new Promise((resolve) =>
+            sb.addEventListener("updateend", resolve, { once: true }),
+          );
+        }
+      } catch (err) {}
+    }
+
+    console.log(
+      `${DEBUG_TAG} 🔄 Initiating sequential timeline harvest stream for: ${title}`,
+    );
+
     if (window.__currentTrackInitHeader) {
       window.postMessage(
         {
@@ -144,7 +143,6 @@
       );
     }
 
-    // ⚡ 2. Flush the passive preloaded cache immediately to cover the first 30-40 seconds of audio
     if (passivePreloadCache.length > 0) {
       passivePreloadCache.forEach((item) => {
         const isHeaderDup =
@@ -152,7 +150,7 @@
           item.chunk[5] === 0x74 &&
           item.chunk[6] === 0x79 &&
           item.chunk[7] === 0x70;
-        if (isHeaderDup) return; // Prevent duplicate header entries
+        if (isHeaderDup) return;
 
         window.postMessage(
           {
@@ -170,25 +168,28 @@
       passivePreloadCache = [];
     }
 
-    // 🔬 3. Jump the timeline scrubbing loop directly to 30 seconds to fetch the rest of the song
-    let currentStep = 30;
+    video.currentTime = 0.001;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    let currentStep = 10;
     const stepSize = 10;
     const safeEndBoundary = duration - 5.0;
 
     while (currentStep < safeEndBoundary) {
       video.currentTime = currentStep;
-      await new Promise((resolve) => setTimeout(resolve, 350)); // Faster seek cadence
+      await new Promise((resolve) => setTimeout(resolve, 400));
       currentStep += stepSize;
     }
 
     isHarvesting = false;
     try {
       video.pause();
+      video.currentTime = 0;
     } catch (e) {}
 
-    let idleWindow = 1500;
+    let idleWindow = 2000;
     while (Date.now() - lastChunkReceivedAt < idleWindow) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
     window.postMessage(

@@ -64,8 +64,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   const currentSourceTabId = sender.tab.id;
 
+  if (request.type === "PREPARE_AND_RESET_OFFSCREEN") {
+    setupOffscreen().then(() => {
+      // Enforce handshake: Re-route to offscreen as OFFSCREEN_RESET and wait for completion
+      chrome.runtime.sendMessage(
+        {
+          ...request,
+          type: "OFFSCREEN_RESET",
+          fromBackground: true,
+        },
+        (response) => {
+          sendResponse(response || { success: true });
+        },
+      );
+    });
+    return true;
+  }
+
   if (
-    request.type === "PREPARE_AND_RESET_OFFSCREEN" ||
     request.type === "TRICKLE_TO_OFFSCREEN" ||
     request.type === "TRIGGER_OFFSCREEN_SUBMIT"
   ) {
