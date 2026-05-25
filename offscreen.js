@@ -28,28 +28,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (len === 0) return false;
 
-    // 1. Absolute Structural Header Check (The ftyp box)
-    const isStructuralHeader =
-      len > 8 &&
-      rawData[4] === 0x66 &&
-      rawData[5] === 0x74 &&
-      rawData[6] === 0x79 &&
-      rawData[7] === 0x70;
-
-    if (isStructuralHeader) {
-      console.log(
-        `[YT-Audio-Offscreen] 👑 Header box detected. Ensuring index 0 placement.`,
-      );
-      // DO NOT clear chunks. Use unshift to prepend if it's the header.
+    // 👑 HEADER PRIORITIZATION: If it's a HEADER, it MUST be index 0
+    if (meta.streamType === "HEADER") {
       offscreenChunks.unshift(new Uint8Array(rawData));
+      console.log("[YT-Audio-Offscreen] 👑 Header forced to index 0.");
       return false;
     }
 
     // Filter structural redundant header duplicates safely
     if (offscreenChunks.length > 0 && len < 300) return false;
 
-    // 🧠 IMPROVED SIGNATURE: Include metadata type to prevent overlapping
-    const sig = `${len}_${rawData[0]}_${rawData[len - 1]}_${meta.streamType || "LIVE"}`;
+    // 🧠 DUPLICATE DETECTION CHECKSUM
+    const sig = `${len}_${rawData[0]}_${rawData[len - 1]}`;
 
     if (chunkSignatures.has(sig)) {
       console.log(`[YT-Audio-Offscreen] 🛑 Duplicate block dropped: ${sig}`);
@@ -57,7 +47,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     chunkSignatures.add(sig);
-    offscreenChunks.push(new Uint8Array(rawData)); // Use push, NEVER unshift or overwrite
+    offscreenChunks.push(new Uint8Array(rawData));
     trackedBytes += len;
 
     console.log(

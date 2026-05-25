@@ -117,7 +117,8 @@
     if (!video) return;
 
     console.log(`${DEBUG_TAG} 🚀 Dispatching Preload Cache to Offscreen...`);
-    // 1. Send Header + Cache immediately
+
+    // 1. Send Header first
     if (window.__currentTrackInitHeader) {
       window.postMessage(
         {
@@ -132,13 +133,13 @@
         },
         "*",
       );
-      await new Promise((r) => setTimeout(r, 50)); // Ensure it's processed
+      await new Promise((r) => setTimeout(r, 50));
     }
 
-    // 2. Dump Cache with explicit Await Logic
+    // 2. Dump Cache with a 50ms delay to prevent message queue overflow
     if (passivePreloadCache.length > 0) {
       console.log(
-        `${DEBUG_TAG} ⚡ Flushing ${passivePreloadCache.length} cached blocks...`,
+        `${DEBUG_TAG} ⚡ Flushing ${passivePreloadCache.length} cached blocks with throttle...`,
       );
       for (const item of passivePreloadCache) {
         const isHeaderDup =
@@ -161,8 +162,7 @@
           },
           "*",
         );
-
-        // Wait for the browser message loop to actually dispatch this
+        // Small delay to allow the browser's message port to clear
         await new Promise((r) => setTimeout(r, 20));
       }
       passivePreloadCache = [];
@@ -170,33 +170,27 @@
       await new Promise((r) => setTimeout(r, 200));
     }
 
+    // 3. ONLY NOW set isHarvesting to true (Live data won't interfere with Cache delivery)
     isHarvesting = true;
     lastChunkReceivedAt = Date.now();
 
-    // 2. Scrub timeline from end of cache to duration
-    let currentStep = 30;
-    const stepSize = 10;
-    const safeEndBoundary = duration - 2.0;
+    // 4. Scrub timeline
+    video.currentTime = 0;
+    await new Promise((resolve) => setTimeout(resolve, 400));
 
-    while (currentStep < safeEndBoundary) {
+    let currentStep = 10;
+    while (currentStep < duration - 2) {
       video.currentTime = currentStep;
       console.log(
         `${DEBUG_TAG} 🗺️ Scrubbing layout tracking head -> Target: ${currentStep.toFixed(1)}s / ${duration.toFixed(1)}s`,
       );
       await new Promise((resolve) => setTimeout(resolve, 400));
-      currentStep += stepSize;
+      currentStep += 10;
     }
 
     isHarvesting = false;
-    try {
-      video.pause();
-    } catch (e) {}
-
-    let idleWindow = 2000;
-    while (Date.now() - lastChunkReceivedAt < idleWindow) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-
+    // Wait for the final chunks to arrive
+    await new Promise((r) => setTimeout(r, 1000));
     window.postMessage(
       { source: "yt-audio-bridge", type: "HARVEST_COMPLETE", title, artist },
       "*",
