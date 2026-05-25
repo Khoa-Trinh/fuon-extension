@@ -10,7 +10,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     trackedBytes = 0;
     chunkSignatures.clear();
     directSubmitLock = false;
-    console.log("[YT-Audio-Offscreen] Buffers flushed.");
+    console.log("[YT-Audio-Offscreen] 🧼 Memory tables flushed completely.");
     return false;
   }
 
@@ -20,21 +20,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const meta = request.metadata || { size: len, playheadTime: 0 };
 
     if (len === 0) return false;
-
-    // Header Integrity Lock (Keep only the first 266-byte block)
-    if (offscreenChunks.length > 0 && len < 300) {
-      console.log(
-        `[YT-Audio-Offscreen] 🛡️ Filtered redundant header re-fetch (${len} bytes).`,
-      );
-      return false;
-    }
+    if (offscreenChunks.length > 0 && len < 300) return false;
 
     let byteSum = 0;
     let step = Math.max(1, Math.floor(len / 10));
     for (let i = 0; i < len; i += step) {
       byteSum += rawData[i];
     }
-
     const uniqueSignature = `${len}_${byteSum}_${rawData[0]}_${rawData[len - 1]}`;
 
     if (chunkSignatures.has(uniqueSignature)) return false;
@@ -44,17 +36,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     offscreenChunks.push(u8);
     trackedBytes += u8.byteLength;
 
+    // Verbose log restored!
     console.log(
-      `[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} | Size: ${(meta.size / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime.toFixed(1)}s | Total: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
+      `[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime.toFixed(1)}s | Total: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
     );
     return false;
   }
 
   if (request.type === "TRIGGER_OFFSCREEN_SUBMIT") {
-    if (directSubmitLock) {
-      console.log("[YT-Audio-Offscreen] 🛡️ Duplicate call blocked.");
-      return false;
-    }
+    if (directSubmitLock) return false;
     directSubmitLock = true;
 
     handleDirectCloudUpload(request)
@@ -64,10 +54,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       })
       .catch((err) => {
         directSubmitLock = false;
-        console.error(
-          "[YT-Audio-Offscreen] ❌ CRITICAL CLOUD UPLOAD FAILURE:",
-          err,
-        );
+        console.error("[YT-Audio-Offscreen] ❌ Upload Pipeline Crash:", err);
         sendResponse({ success: false, error: err.message });
       });
     return true;
@@ -78,38 +65,58 @@ async function handleDirectCloudUpload(request) {
   if (offscreenChunks.length === 0) throw new Error("No data captured.");
 
   const blob = new Blob(offscreenChunks, { type: request.mimeType });
+  const { supabaseUrl, secretKey, bucketName } = request.config;
+
+  const supabaseClient = supabase.createClient(supabaseUrl, secretKey);
+
+  const cleanString = (str) =>
+    str
+      .replace(/[^\x00-\x7F]/g, "")
+      .replace(/[^a-zA-Z0-9\s-_]/g, "")
+      .trim()
+      .replace(/\s+/g, "_");
+  const cleanTitle = cleanString(request.title);
+  const folderPrefix = request.playlistTitle
+    ? cleanString(request.playlistTitle)
+    : "Single_Videos";
+
+  const fileName = `${cleanTitle}-${Date.now()}.${request.extension}`;
+  const filePath = `${folderPrefix}/${fileName}`;
+
   console.log(
     `[YT-Audio-Offscreen] Finalizing Assembly -> Total Chunks: ${offscreenChunks.length}, Absolute Weight: ${(blob.size / 1024 / 1024).toFixed(2)} MB`,
   );
 
-  const { supabaseUrl, publishableKey, secretKey, bucketName } = request.config;
-  const filename = `${request.title.replace(/[\\/:*?"<>|]/g, "_")}_${Date.now()}.${request.extension}`;
-  const uploadUrl = `${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/${bucketName}/${filename}`;
+  const { error: uploadError } = await supabaseClient.storage
+    .from(bucketName)
+    .upload(filePath, blob, { contentType: request.mimeType, upsert: true });
+
+  if (uploadError) throw uploadError;
+
+  const { data: urlData } = supabaseClient.storage
+    .from(bucketName)
+    .getPublicUrl(filePath);
+
+  const { data: dbData, error: dbError } = await supabaseClient
+    .from("tracks")
+    .insert([
+      {
+        title: request.title,
+        artist: request.artist || "Unknown Publisher",
+        playlist: request.playlistTitle || "None",
+        duration_seconds: Math.round(request.duration || 0),
+        file_name: fileName,
+        stream_url: urlData.publicUrl,
+      },
+    ]);
+
+  if (dbError) throw dbError;
 
   console.log(
-    `[YT-Audio-Offscreen] Firing storage fetch call payload to: ${uploadUrl}`,
-  );
-
-  const response = await fetch(uploadUrl, {
-    method: "POST",
-    headers: {
-      apikey: publishableKey,
-      Authorization: `Bearer ${secretKey.trim()}`,
-      "Content-Type": request.mimeType,
-    },
-    body: blob,
-  });
-
-  if (!response.ok) {
-    const errData = await uploadRes.json();
-    throw new Error(errData.message || `Supabase error: ${response.status}`);
-  }
-
-  console.log(
-    "[YT-Audio-Offscreen] Cloud transaction complete! File synchronized perfectly.",
+    "[YT-Audio-Offscreen] Cloud transaction complete! Synchronized perfectly.",
   );
 
   offscreenChunks = [];
   chunkSignatures.clear();
-  return { filename, size: blob.size }; // Fixed: correct variable scoping layout reference
+  return { fileName, size: blob.size, dbData };
 }
