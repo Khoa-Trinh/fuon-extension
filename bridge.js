@@ -67,21 +67,25 @@
           chunk[6] === 0x79 &&
           chunk[7] === 0x70;
         const video = document.querySelector("video");
+        const playhead = video ? video.currentTime : 0;
 
         if (isStructuralHeader) {
           window.__currentTrackInitHeader = chunk;
           console.log(
-            `${DEBUG_TAG} 👑 Session Container Initialization Header Cached safely.`,
+            `${DEBUG_TAG} 👑 Session Container Initialization Header Cached safely. Size: ${chunk.byteLength} B`,
             "color: #a855f7; font-weight: bold;",
           );
         }
 
+        const streamType = isHarvesting ? "HARVEST_LIVE" : "PASSIVE_PRELOAD";
+        console.log(
+          `%c[YT-Audio-Bridge] 📦 Raw Append Buffer | Size: ${chunk.byteLength} B | Playhead: ${playhead.toFixed(2)}s | Engine: ${streamType}`,
+          isHarvesting ? "color: #38bdf8;" : "color: #71717a;",
+        );
+
         if (!isHarvesting) {
-          if (passivePreloadCache.length < 60) {
-            passivePreloadCache.push({
-              chunk,
-              playheadTime: video ? video.currentTime : 0,
-            });
+          if (passivePreloadCache.length < 150) {
+            passivePreloadCache.push({ chunk, playheadTime: playhead });
           }
           return originalAppendBuffer.apply(this, arguments);
         }
@@ -94,7 +98,8 @@
             chunk: chunk,
             metadata: {
               size: chunk.byteLength,
-              playheadTime: video ? video.currentTime : 0,
+              playheadTime: playhead,
+              streamType: "HARVEST_LIVE",
             },
           },
           "*",
@@ -128,7 +133,11 @@
       `${DEBUG_TAG} 🔄 Initiating sequential timeline harvest stream for: ${title}`,
     );
 
+    // 1. Send the Initialization Header explicitly
     if (window.__currentTrackInitHeader) {
+      console.log(
+        `${DEBUG_TAG} 🚀 Transmitting Master Initialization Header Block...`,
+      );
       window.postMessage(
         {
           source: "yt-audio-bridge",
@@ -137,20 +146,25 @@
           metadata: {
             size: window.__currentTrackInitHeader.byteLength,
             playheadTime: 0.0,
+            streamType: "CONTAINER_HEADER",
           },
         },
         "*",
       );
     }
 
+    // 2. Dump the entire preload cache down the pipeline
     if (passivePreloadCache.length > 0) {
+      console.log(
+        `${DEBUG_TAG} ⚡ Flushing ${passivePreloadCache.length} passive preloader cache blocks down the wire...`,
+      );
       passivePreloadCache.forEach((item) => {
         const isHeaderDup =
           item.chunk[4] === 0x66 &&
           item.chunk[5] === 0x74 &&
           item.chunk[6] === 0x79 &&
           item.chunk[7] === 0x70;
-        if (isHeaderDup) return;
+        if (isHeaderDup) return; // Prevent duplicate headers
 
         window.postMessage(
           {
@@ -160,6 +174,7 @@
             metadata: {
               size: item.chunk.byteLength,
               playheadTime: item.playheadTime,
+              streamType: "PRELOADED_CACHE",
             },
           },
           "*",
@@ -168,15 +183,19 @@
       passivePreloadCache = [];
     }
 
+    // 3. Scrub timeline from the very beginning (0.001) to end to force fetching of all remaining data
     video.currentTime = 0.001;
     await new Promise((resolve) => setTimeout(resolve, 400));
 
     let currentStep = 10;
     const stepSize = 10;
-    const safeEndBoundary = duration - 5.0;
+    const safeEndBoundary = duration - 2.0;
 
     while (currentStep < safeEndBoundary) {
       video.currentTime = currentStep;
+      console.log(
+        `${DEBUG_TAG} MAP Scrubbing layout tracking head -> Target: ${currentStep.toFixed(1)}s / ${duration.toFixed(1)}s`,
+      );
       await new Promise((resolve) => setTimeout(resolve, 400));
       currentStep += stepSize;
     }

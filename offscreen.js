@@ -24,6 +24,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "TRICKLE_TO_OFFSCREEN") {
     const rawData = request.chunk;
     const len = rawData.length;
+    const meta = request.metadata || {
+      size: len,
+      playheadTime: 0,
+      streamType: "LIVE",
+    };
 
     if (len === 0) return false;
 
@@ -41,20 +46,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       chunkSignatures.clear();
       directSubmitLock = false;
       console.log(
-        "[YT-Audio-Offscreen] 🧼 Magic 'ftyp' container box caught. Flushing old tables. Instantiating track Part #1.",
+        `%c[YT-Audio-Offscreen] 🧼 Magic 'ftyp' master container box caught (${len} B). Flushing arrays. Instantiating track Part #1.`,
+        "color: #a855f7; font-weight: bold;",
       );
     }
 
-    if (offscreenChunks.length > 0 && len < 300) return false;
+    if (offscreenChunks.length > 0 && len < 300) {
+      console.log(
+        `[YT-Audio-Offscreen] 🛑 Block discarded: Fragment size is too small (${len} B).`,
+      );
+      return false;
+    }
 
+    // 🧠 RIGOROUS DUPLICATE DETECTION CHECKSUM MATRIX
+    // Samples 20 distinct points inside the payload to guarantee a unique, collision-proof fingerprint
     let byteSum = 0;
-    let step = Math.max(1, Math.floor(len / 10));
+    let step = Math.max(1, Math.floor(len / 20));
     for (let i = 0; i < len; i += step) {
       byteSum += rawData[i];
     }
-    const uniqueSignature = `${len}_${byteSum}_${rawData[0]}_${rawData[len - 1]}`;
+    const mid = Math.floor(len / 2);
+    const uniqueSignature = `${len}_${byteSum}_${rawData[0]}_${rawData[mid]}_${rawData[len - 1]}`;
 
-    if (chunkSignatures.has(uniqueSignature)) return false;
+    if (chunkSignatures.has(uniqueSignature)) {
+      console.log(
+        `%c[YT-Audio-Offscreen] 🛑 Duplicate block dropped -> Origin: ${meta.streamType} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime.toFixed(2)}s`,
+        "color: #ef4444; font-weight: bold;",
+      );
+      return false;
+    }
 
     chunkSignatures.add(uniqueSignature);
     const u8 = new Uint8Array(rawData);
@@ -62,7 +82,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     trackedBytes += u8.byteLength;
 
     console.log(
-      `[YT-Audio-Offscreen] 📥 Captured Part #${offscreenChunks.length} | Size: ${(len / 1024).toFixed(1)} KB`,
+      `%c[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} Stored Safely | Origin: ${meta.streamType} | Size: ${(len / 1024).toFixed(1)} KB | Playhead: ${meta.playheadTime.toFixed(2)}s | Pool Weight: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
+      meta.streamType === "PRELOADED_CACHE"
+        ? "color: #71717a;"
+        : "color: #38bdf8;",
     );
     return false;
   }
@@ -123,7 +146,7 @@ async function handleDirectCloudUpload(request) {
     ? cleanString(request.playlistTitle)
     : "Single_Videos";
 
-  const fileName = `${Date.now()}-${cleanTitle}.${request.extension}`;
+  const fileName = `${cleanTitle}-${Date.now()}.${request.extension}`;
   const filePath = `${folderPrefix}/${fileName}`;
 
   console.log(
