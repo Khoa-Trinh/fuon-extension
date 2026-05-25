@@ -117,7 +117,6 @@
     if (!video) return;
 
     console.log(`${DEBUG_TAG} 🚀 Dispatching Preload Cache to Offscreen...`);
-
     // 1. Send Header + Cache immediately
     if (window.__currentTrackInitHeader) {
       window.postMessage(
@@ -128,37 +127,45 @@
           metadata: {
             size: window.__currentTrackInitHeader.byteLength,
             playheadTime: 0.0,
-            type: "HEADER",
+            streamType: "HEADER",
+            resetSession: true,
           },
         },
         "*",
       );
     }
 
-    // PASSING CACHE: We send the cache but we do NOT clear passivePreloadCache here
-    // because the content script needs to maintain state.
-    passivePreloadCache.forEach((p) => {
-      const isHeaderDup =
-        p.chunk[4] === 0x66 &&
-        p.chunk[5] === 0x74 &&
-        p.chunk[6] === 0x79 &&
-        p.chunk[7] === 0x70;
-      if (isHeaderDup) return;
-
-      window.postMessage(
-        {
-          source: "yt-audio-bridge",
-          type: "AUDIO_CHUNK",
-          chunk: p.chunk,
-          metadata: {
-            size: p.chunk.byteLength,
-            playheadTime: p.playheadTime,
-            type: "CACHE",
-          },
-        },
-        "*",
+    // 2. Dump Cache with a 50ms delay to prevent message queue overflow
+    if (passivePreloadCache.length > 0) {
+      console.log(
+        `${DEBUG_TAG} ⚡ Flushing ${passivePreloadCache.length} cached blocks with throttle...`,
       );
-    });
+      for (const item of passivePreloadCache) {
+        const isHeaderDup =
+          item.chunk[4] === 0x66 &&
+          item.chunk[5] === 0x74 &&
+          item.chunk[6] === 0x79 &&
+          item.chunk[7] === 0x70;
+        if (isHeaderDup) continue;
+
+        window.postMessage(
+          {
+            source: "yt-audio-bridge",
+            type: "AUDIO_CHUNK",
+            chunk: item.chunk,
+            metadata: {
+              size: item.chunk.byteLength,
+              playheadTime: item.playheadTime,
+              streamType: "PRELOADED_CACHE",
+            },
+          },
+          "*",
+        );
+        // Small delay to allow the browser's message port to clear
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      passivePreloadCache = [];
+    }
 
     isHarvesting = true;
     lastChunkReceivedAt = Date.now();
