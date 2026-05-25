@@ -132,6 +132,7 @@
         },
         "*",
       );
+      await new Promise((r) => setTimeout(r, 50)); // Ensure it's processed
     }
 
     // 2. Dump Cache with explicit Await Logic

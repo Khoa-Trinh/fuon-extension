@@ -38,12 +38,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (isStructuralHeader) {
       console.log(
-        `[YT-Audio-Offscreen] 🧼 Structural Header Caught (${len} B). Forcing hard memory reset.`,
+        `[YT-Audio-Offscreen] 👑 Header box detected. Ensuring index 0 placement.`,
       );
-      offscreenChunks = [];
-      trackedBytes = 0;
-      chunkSignatures.clear();
-      directSubmitLock = false;
+      // DO NOT clear chunks. Use unshift to prepend if it's the header.
+      offscreenChunks.unshift(new Uint8Array(rawData));
+      return false;
     }
 
     // Filter structural redundant header duplicates safely
