@@ -157,11 +157,6 @@ if (window.__ytAudioContentInitialized) {
     )
       return;
 
-    // 🔥 RELAY HARVEST START THRESHOLD TOKEN
-    if (event.data.type === "HARVEST_START") {
-      chrome.runtime.sendMessage({ type: "HARVEST_START" });
-    }
-
     if (event.data.type === "AUDIO_TYPE_DETECTED") {
       const mime = event.data.mimeType;
       const id = mime.includes("mp4") ? "140" : "251";

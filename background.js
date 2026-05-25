@@ -30,12 +30,10 @@ async function setupOffscreen() {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // Handle return journey message deliveries
   if (request.type === "FROM_OFFSCREEN_UPLOAD_COMPLETE") {
     console.log(
       `[ROUTER-TRACE] 🔄 Background caught complete notice from offscreen. Targeting Tab ID: ${request.tabId}`,
     );
-
     if (request.tabId) {
       chrome.tabs.sendMessage(
         request.tabId,
@@ -66,9 +64,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   const currentSourceTabId = sender.tab.id;
 
-  // 🔥 DIRECT DETACHED SESSION ROUTING GATEWAYS
+  if (request.type === "PREPARE_AND_RESET_OFFSCREEN") {
+    setupOffscreen().then(() => {
+      chrome.runtime.sendMessage({ type: "OFFSCREEN_RESET" });
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
   if (
-    request.type === "HARVEST_START" ||
     request.type === "TRICKLE_TO_OFFSCREEN" ||
     request.type === "TRIGGER_OFFSCREEN_SUBMIT"
   ) {

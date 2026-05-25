@@ -3,20 +3,19 @@ let offscreenChunks = [];
 let trackedBytes = 0;
 const chunkSignatures = new Set();
 let directSubmitLock = false;
-let supabaseClient = null; // Cached reference global register
+let supabaseClient = null; // Caching global client context variable pointer
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // Filter out raw un-routed cross-talk packets from the ecosystem
-  if (request.type !== "HARVEST_START" && !request.fromBackground) return false;
+  if (request.type !== "OFFSCREEN_RESET" && !request.fromBackground)
+    return false;
 
-  // 🧼 DETERMINISTIC SESSION RESET: Flushes memory tables right before harvesting starts
-  if (request.type === "HARVEST_START") {
+  if (request.type === "OFFSCREEN_RESET") {
     offscreenChunks = [];
     trackedBytes = 0;
     chunkSignatures.clear();
     directSubmitLock = false;
     console.log(
-      "[YT-Audio-Offscreen] 🧼 Memory tables completely cleared for new harvest sequence pass.",
+      "[YT-Audio-Offscreen] 🧼 Manual reset forced via navigation hook.",
     );
     return false;
   }
@@ -24,7 +23,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "TRICKLE_TO_OFFSCREEN") {
     const rawData = request.chunk;
     const len = rawData.length;
+    const meta = request.metadata || {};
+
     if (len === 0) return false;
+
+    // 🧼 ATOMIC IN-PAYLOAD RESET BOUNDARY GATES
+    if (meta.resetSession) {
+      offscreenChunks = [];
+      trackedBytes = 0;
+      chunkSignatures.clear();
+      directSubmitLock = false;
+      console.log(
+        "[YT-Audio-Offscreen] 🧼 Atomic table flush executed via inline packet token. Capturing initialization container box...",
+      );
+    }
+
+    // Filter structural redundant header duplicates safely
     if (offscreenChunks.length > 0 && len < 300) return false;
 
     let byteSum = 0;
@@ -88,7 +102,6 @@ async function handleDirectCloudUpload(request) {
   const blob = new Blob(offscreenChunks, { type: request.mimeType });
   const { supabaseUrl, secretKey, bucketName } = request.config;
 
-  // Initialize the database client exactly once per worker environment cycle pass
   if (!supabaseClient) {
     supabaseClient = supabase.createClient(supabaseUrl, secretKey);
   }

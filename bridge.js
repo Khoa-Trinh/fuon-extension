@@ -81,12 +81,6 @@
           );
         }
 
-        // Live Telemetry Log added back
-        console.log(
-          `%c[YT-Audio-Bridge] 📦 Captured Block | Size: ${chunk.byteLength} B | Playhead: ${video ? video.currentTime.toFixed(2) : "0"}s | State: ${isHarvesting ? "HARVEST_LIVE" : "PASSIVE_CACHE"}`,
-          isHarvesting ? "color: #38bdf8;" : "color: #71717a;",
-        );
-
         if (!isHarvesting) {
           if (passivePreloadCache.length < 60) {
             passivePreloadCache.push({
@@ -121,37 +115,6 @@
     const video = document.querySelector("video");
     if (!video) return;
 
-    // 🚨 STAGE 1: Deterministically clear out the backend before flushes run
-    window.postMessage(
-      { source: "yt-audio-bridge", type: "HARVEST_START" },
-      "*",
-    );
-    await new Promise((resolve) => setTimeout(resolve, 150)); // Sync buffer delay
-
-    console.log(`${DEBUG_TAG} 🔄 Starting timeline sweep probe for: ${title}`);
-
-    // Flush passive cache straight down the pipeline
-    if (passivePreloadCache.length > 0) {
-      console.log(
-        `${DEBUG_TAG} ⚡ Flushing ${passivePreloadCache.length} passive preloader cache frames...`,
-      );
-      passivePreloadCache.forEach((item) => {
-        window.postMessage(
-          {
-            source: "yt-audio-bridge",
-            type: "AUDIO_CHUNK",
-            chunk: item.chunk,
-            metadata: {
-              size: item.chunk.byteLength,
-              playheadTime: item.playheadTime,
-            },
-          },
-          "*",
-        );
-      });
-      passivePreloadCache = [];
-    }
-
     isHarvesting = true;
     lastChunkReceivedAt = Date.now();
 
@@ -166,6 +129,13 @@
       } catch (err) {}
     }
 
+    console.log(
+      `${DEBUG_TAG} 🔄 Initiating sequential timeline harvest stream for: ${title}`,
+    );
+
+    let isFirstPack = true;
+
+    // 👑 1. Force out the container box header block first, tagged to atomically reset offscreen memory
     if (window.__currentTrackInitHeader) {
       window.postMessage(
         {
@@ -175,12 +145,44 @@
           metadata: {
             size: window.__currentTrackInitHeader.byteLength,
             playheadTime: 0.0,
+            resetSession: true,
           },
         },
         "*",
       );
+      isFirstPack = false;
     }
 
+    // ⚡ 2. Flush passive history stream cache directly down the wire
+    if (passivePreloadCache.length > 0) {
+      passivePreloadCache.forEach((item) => {
+        // Filter out redundant copies of the ftyp container header box
+        const isHeaderDup =
+          item.chunk[4] === 0x66 &&
+          item.chunk[5] === 0x74 &&
+          item.chunk[6] === 0x79 &&
+          item.chunk[7] === 0x70;
+        if (isHeaderDup) return;
+
+        window.postMessage(
+          {
+            source: "yt-audio-bridge",
+            type: "AUDIO_CHUNK",
+            chunk: item.chunk,
+            metadata: {
+              size: item.chunk.byteLength,
+              playheadTime: item.playheadTime,
+              resetSession: isFirstPack, // Fallback reset trigger if initialization container was missing
+            },
+          },
+          "*",
+        );
+        isFirstPack = false;
+      });
+      passivePreloadCache = [];
+    }
+
+    // 🔬 3. Sweep timeline partitions
     video.currentTime = 0.001;
     await new Promise((resolve) => setTimeout(resolve, 400));
 
