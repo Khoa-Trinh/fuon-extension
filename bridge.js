@@ -128,7 +128,6 @@
             size: window.__currentTrackInitHeader.byteLength,
             playheadTime: 0.0,
             streamType: "HEADER",
-            resetSession: true,
           },
         },
         "*",
