@@ -3,6 +3,7 @@ let offscreenChunks = [];
 let trackedBytes = 0;
 const chunkSignatures = new Set();
 let directSubmitLock = false;
+let sessionLocked = false;
 let supabaseClient = null;
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -14,6 +15,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     trackedBytes = 0;
     chunkSignatures.clear();
     directSubmitLock = false;
+    sessionLocked = false;
     console.log(
       "[YT-Audio-Offscreen] 🧼 Memory tables cleared by Navigation Reset.",
     );
@@ -21,37 +23,68 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request.type === "TRICKLE_TO_OFFSCREEN") {
-    const rawData = request.chunk;
-    const len = rawData.length;
-    const meta = request.metadata || {};
+  if (
+    request.type === "TRICKLE_TO_OFFSCREEN" ||
+    request.type === "AUDIO_BATCH"
+  ) {
+    const items = request.isBatch
+      ? request.batch
+      : [{ chunk: request.chunk, metadata: request.metadata }];
 
-    if (len === 0) return false;
+    items.forEach((item) => {
+      const rawData = item.chunk;
+      const meta = item.metadata || {};
+      const len = rawData.length;
 
-    // 👑 HEADER PRIORITIZATION: If it's a HEADER, it MUST be index 0
-    if (meta.streamType === "HEADER") {
-      offscreenChunks.unshift(new Uint8Array(rawData));
-      console.log("[YT-Audio-Offscreen] 👑 Header forced to index 0.");
-      return false;
-    }
+      if (len === 0) return;
 
-    // Filter structural redundant header duplicates safely
-    if (offscreenChunks.length > 0 && len < 300) return false;
+      // 1. Absolute Structural Header Check (The ftyp box)
+      const isStructuralHeader =
+        len > 8 &&
+        rawData[4] === 0x66 &&
+        rawData[5] === 0x74 &&
+        rawData[6] === 0x79 &&
+        rawData[7] === 0x70;
 
-    // 🧠 DUPLICATE DETECTION CHECKSUM
-    const sig = `${len}_${rawData[0]}_${rawData[len - 1]}`;
+      if (isStructuralHeader || meta.streamType === "HEADER") {
+        if (!sessionLocked) {
+          console.log(
+            `[YT-Audio-Offscreen] 🔒 Session Locked. Structural Header Caught (${len} B). Forcing hard memory reset.`,
+          );
+          offscreenChunks = [];
+          trackedBytes = 0;
+          chunkSignatures.clear();
+          directSubmitLock = false;
+          sessionLocked = true;
+          offscreenChunks.push(new Uint8Array(rawData));
+          return;
+        } else {
+          console.log(
+            "[YT-Audio-Offscreen] 👑 Header box detected (Session already locked). Pinning to Index 0.",
+          );
+          offscreenChunks[0] = new Uint8Array(rawData);
+          return;
+        }
+      }
 
-    if (chunkSignatures.has(sig)) {
-      console.log(`[YT-Audio-Offscreen] 🛑 Duplicate block dropped: ${sig}`);
-      return false;
-    }
+      // Filter structural redundant header duplicates safely
+      if (offscreenChunks.length > 0 && len < 300) return;
 
-    chunkSignatures.add(sig);
-    offscreenChunks.push(new Uint8Array(rawData));
-    trackedBytes += len;
+      // 🧠 IMPROVED SIGNATURE: Include metadata type to prevent overlapping
+      const sig = `${len}_${rawData[0]}_${rawData[len - 1]}_${meta.streamType || "LIVE"}`;
+
+      if (chunkSignatures.has(sig)) {
+        console.log(`[YT-Audio-Offscreen] 🛑 Duplicate block dropped: ${sig}`);
+        return;
+      }
+
+      chunkSignatures.add(sig);
+      offscreenChunks.push(new Uint8Array(rawData));
+      trackedBytes += len;
+    });
 
     console.log(
-      `[YT-Audio-Offscreen] 📥 Part #${offscreenChunks.length} | Size: ${(len / 1024).toFixed(1)} KB | Type: ${meta.streamType || "LIVE"}`,
+      `[YT-Audio-Offscreen] 📥 Processed ${items.length} chunks. Total: ${offscreenChunks.length} | Pool: ${(trackedBytes / 1024 / 1024).toFixed(2)} MB`,
     );
     return false;
   }
@@ -67,6 +100,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleDirectCloudUpload(request)
       .then((res) => {
         directSubmitLock = false;
+        sessionLocked = false;
         console.log(
           `[ROUTER-TRACE] 🌐 Cloud sync done. Relaying confirmation for Tab ID: ${request.tabId}`,
         );
@@ -79,6 +113,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       })
       .catch((err) => {
         directSubmitLock = false;
+        sessionLocked = false;
         console.error("[YT-Audio-Offscreen] ❌ Upload Pipeline Crash:", err);
         chrome.runtime.sendMessage({
           type: "FROM_OFFSCREEN_UPLOAD_COMPLETE",

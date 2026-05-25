@@ -185,6 +185,14 @@ if (window.__ytAudioContentInitialized) {
       });
     }
 
+    if (event.data.type === "AUDIO_BATCH") {
+      chrome.runtime.sendMessage({
+        type: "AUDIO_BATCH",
+        batch: event.data.batch,
+        isBatch: true,
+      });
+    }
+
     if (event.data.type === "HARVEST_COMPLETE") {
       executeUploadPipeline(event.data.title, event.data.artist);
     }

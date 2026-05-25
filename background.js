@@ -83,7 +83,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (
     request.type === "TRICKLE_TO_OFFSCREEN" ||
-    request.type === "TRIGGER_OFFSCREEN_SUBMIT"
+    request.type === "TRIGGER_OFFSCREEN_SUBMIT" ||
+    request.type === "AUDIO_BATCH"
   ) {
     setupOffscreen().then(() => {
       request.tabId = currentSourceTabId;

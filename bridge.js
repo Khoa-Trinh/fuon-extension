@@ -25,6 +25,10 @@
       mimeType.includes("audio") &&
       (mimeType.includes("webm") || mimeType.includes("opus"))
     ) {
+      console.log(
+        `${DEBUG_TAG} 🛑 Denied layout codec mapping request for: ${mimeType} (Forcing M4A/AAC fallback)`,
+        "color: #ef4444;",
+      );
       return false;
     }
     return originalIsTypeSupported.call(this, mimeType);
@@ -116,10 +120,15 @@
     const video = document.querySelector("video");
     if (!video) return;
 
-    console.log(`${DEBUG_TAG} 🚀 Dispatching Preload Cache to Offscreen...`);
+    console.log(
+      `${DEBUG_TAG} 🔄 Initiating Sequential Atomic Harvest for: ${title}`,
+    );
 
-    // 1. Send Header first
+    // 1. HARD SYNC: Send Header (Forces Offscreen Flush/Lock)
     if (window.__currentTrackInitHeader) {
+      console.log(
+        `${DEBUG_TAG} 🚀 Transmitting Master Initialization Header...`,
+      );
       window.postMessage(
         {
           source: "yt-audio-bridge",
@@ -136,59 +145,61 @@
       await new Promise((r) => setTimeout(r, 50));
     }
 
-    // 2. Dump Cache with a 50ms delay to prevent message queue overflow
+    // 2. BATCH DELIVERY: Send all cache chunks in one massive array to prevent queue drops
     if (passivePreloadCache.length > 0) {
       console.log(
-        `${DEBUG_TAG} ⚡ Flushing ${passivePreloadCache.length} cached blocks with throttle...`,
+        `${DEBUG_TAG} ⚡ Batch flushing ${passivePreloadCache.length} cached blocks...`,
       );
-      for (const item of passivePreloadCache) {
-        const isHeaderDup =
-          item.chunk[4] === 0x66 &&
-          item.chunk[5] === 0x74 &&
-          item.chunk[6] === 0x79 &&
-          item.chunk[7] === 0x70;
-        if (isHeaderDup) continue;
 
-        window.postMessage(
-          {
-            source: "yt-audio-bridge",
-            type: "AUDIO_CHUNK",
-            chunk: item.chunk,
-            metadata: {
-              size: item.chunk.byteLength,
-              playheadTime: item.playheadTime,
-              streamType: "PRELOADED_CACHE",
-            },
-          },
-          "*",
-        );
-        // Small delay to allow the browser's message port to clear
-        await new Promise((r) => setTimeout(r, 20));
-      }
+      const cacheBatch = passivePreloadCache.map((p) => ({
+        chunk: p.chunk,
+        metadata: {
+          size: p.chunk.byteLength,
+          playheadTime: p.playheadTime,
+          streamType: "PRELOADED_CACHE",
+        },
+      }));
+
+      window.postMessage(
+        {
+          source: "yt-audio-bridge",
+          type: "AUDIO_BATCH",
+          batch: cacheBatch,
+        },
+        "*",
+      );
+
       passivePreloadCache = [];
-      // Give the offscreen worker an extra 200ms to clear its event queue before scrubbing starts
       await new Promise((r) => setTimeout(r, 200));
     }
 
-    // 3. ONLY NOW set isHarvesting to true (Live data won't interfere with Cache delivery)
+    // 3. ONLY NOW set isHarvesting to true (Live data won't interfere with Batch delivery)
     isHarvesting = true;
     lastChunkReceivedAt = Date.now();
 
-    // 4. Scrub timeline
+    // 4. Scrub timeline from the very beginning (0.0) to end
     video.currentTime = 0;
     await new Promise((resolve) => setTimeout(resolve, 400));
 
     let currentStep = 10;
-    while (currentStep < duration - 2) {
+    const stepSize = 10;
+    const safeEndBoundary = duration - 2.0;
+
+    while (currentStep < safeEndBoundary) {
       video.currentTime = currentStep;
       console.log(
         `${DEBUG_TAG} 🗺️ Scrubbing layout tracking head -> Target: ${currentStep.toFixed(1)}s / ${duration.toFixed(1)}s`,
       );
       await new Promise((resolve) => setTimeout(resolve, 400));
-      currentStep += 10;
+      currentStep += stepSize;
     }
 
     isHarvesting = false;
+    try {
+      video.pause();
+      video.currentTime = 0;
+    } catch (e) {}
+
     // Wait for the final chunks to arrive
     await new Promise((r) => setTimeout(r, 1000));
     window.postMessage(
